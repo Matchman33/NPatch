@@ -1,10 +1,10 @@
-# Neo LSPatch Framework
+# NPatch 框架
 
 [![Java](https://img.shields.io/badge/Java-ED8B00?logo=OpenJDK&logoColor=white&label=)](https://openjdk.org/) [![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?logo=Kotlin&logoColor=white&label=)](https://kotlinlang.org/) [![Download](https://img.shields.io/github/v/release/7723mod/NPatch?color=orange&logoColor=white&label=&logo=DocuSign)](https://github.com/7723mod/NPatch/releases/latest) [![Total](https://shields.io/github/downloads/7723mod/NPatch/total?logo=Bookmeter&label=Counts&logoColor=yellow&color=yellow)](https://github.com/7723mod/NPatch/releases)
 
 ## 简介
 
-> English: [README.md](README.md)
+> 主文档：[README.md](README.md)
 
 NPatch 是一个无需 root 的 LSPosed / LSPatch 风格框架，会把 dex 与原生库注入到目标 APK 中，让应用在自身进程里获得 Xposed API 支持。
 
