@@ -22,6 +22,7 @@ import android.util.Log;
 import org.lsposed.hiddenapibypass.HiddenApiBypass;
 
 import top.nkbe.npatch.share.Constants;
+import top.nkbe.npatch.share.WrapperConfig;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -233,6 +234,17 @@ public class LSPAppComponentFactoryStub extends AppComponentFactory {
             throw new IOException("Unsupported instruction set: " + instruction);
         }
 
+        if (isMainProcess()) {
+            bootstrapStage = "extract_gadget";
+            File gadgetFile = prepareGadgetRuntime(loader, abi, Process.myUid() / 100000);
+            if (gadgetFile != null) {
+                bootstrapStage = "load_gadget";
+                Log.i(TAG, "Loading Frida Gadget: " + gadgetFile);
+                System.load(gadgetFile.getAbsolutePath());
+                Log.i(TAG, "Frida Gadget load completed");
+            }
+        }
+
         bootstrapStage = "read_loader_dex";
         try (InputStream input = requireResource(loader, Constants.LOADER_DEX_ASSET_PATH);
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -410,12 +422,84 @@ public class LSPAppComponentFactoryStub extends AppComponentFactory {
         return File.createTempFile("libnpatch-", ".so", cache);
     }
 
+    private static boolean isMainProcess() {
+        String packageName = resolvePackageName();
+        String processName = ActivityThread.currentProcessName();
+        return packageName != null && packageName.equals(processName);
+    }
+
+    private static File prepareGadgetRuntime(ClassLoader loader, String abi, int userId)
+            throws IOException {
+        String assetPrefix = WrapperConfig.RUNTIME_PREFIX + WrapperConfig.GADGET_PREFIX + abi + "/";
+        String libraryAsset = assetPrefix + WrapperConfig.GADGET_LIBRARY;
+        try (InputStream probe = loader.getResourceAsStream(libraryAsset)) {
+            if (probe == null) return null;
+        }
+
+        File directory = resolveGadgetDirectory(userId);
+        recreateDirectory(directory);
+
+        File library = extractRuntimeFile(loader, libraryAsset,
+                new File(directory, WrapperConfig.GADGET_LIBRARY), true);
+        extractRuntimeFile(loader, assetPrefix + WrapperConfig.GADGET_CONFIG,
+                new File(directory, WrapperConfig.GADGET_CONFIG), false);
+        String scriptAsset = assetPrefix + WrapperConfig.GADGET_SCRIPT;
+        try (InputStream script = loader.getResourceAsStream(scriptAsset)) {
+            if (script != null) {
+                writeRuntimeFile(script, new File(directory, WrapperConfig.GADGET_SCRIPT), false);
+            }
+        }
+        return library;
+    }
+
+    private static File extractRuntimeFile(ClassLoader loader, String asset, File target,
+                                           boolean executable) throws IOException {
+        try (InputStream input = requireResource(loader, asset)) {
+            return writeRuntimeFile(input, target, executable);
+        }
+    }
+
+    private static File writeRuntimeFile(InputStream input, File target, boolean executable)
+            throws IOException {
+        try (FileOutputStream output = new FileOutputStream(target)) {
+            transfer(input, output);
+            output.getFD().sync();
+        }
+        if (!target.setReadable(true, true) || !target.setWritable(false, true)
+                || (executable && !target.setExecutable(true, true))) {
+            throw new IOException("Unable to protect runtime file: " + target);
+        }
+        return target;
+    }
+
+    private static void recreateDirectory(File directory) throws IOException {
+        if (directory.exists()) deleteRecursively(directory);
+        if (!directory.mkdirs()) throw new IOException("Unable to create runtime directory: " + directory);
+    }
+
+    private static void deleteRecursively(File file) throws IOException {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children == null) throw new IOException("Unable to list runtime directory: " + file);
+            for (File child : children) deleteRecursively(child);
+        }
+        if (!file.delete()) throw new IOException("Unable to delete stale runtime file: " + file);
+    }
+
     private static File resolveCacheDir(int userId) throws IOException {
         String packageName = resolvePackageName();
         if (packageName == null || packageName.isEmpty()) {
             throw new IOException("Unable to resolve current package name");
         }
         return new File(resolveDataDir(packageName, userId), "cache/npatch");
+    }
+
+    private static File resolveGadgetDirectory(int userId) throws IOException {
+        String packageName = resolvePackageName();
+        if (packageName == null || packageName.isEmpty()) {
+            throw new IOException("Unable to resolve current package name");
+        }
+        return new File(resolveDataDir(packageName, userId), "code_cache/npatch-gadget");
     }
 
     private static String resolvePackageName() {

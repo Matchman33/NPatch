@@ -1,0 +1,7 @@
+console.log("[NPatch Gadget] script loaded");
+
+rpc.exports = {
+  init() {
+    return "ok";
+  }
+};

@@ -8,7 +8,7 @@ NPatch 是一个无需 Root 的 LSPosed / LSPatch 风格框架，通过向目标
 
 上游项目官网：[npatch.nkbe.top](https://npatch.nkbe.top)。上游版本的指南、架构说明和发布信息以官网为准。
 
-本分支新增独立 APK 封装流程：管理器可选择本地 APK 或已安装应用，将未修改的原包保存到 `assets/base.apk`，并使用 NPatch 自身运行时加载原包代码和资源。详细构建、兼容范围和使用说明见 [封装管理器文档](WRAPPER.md)。
+本分支新增独立 APK 封装流程：管理器可选择本地 APK 或已安装应用，将未修改的原包保存到 `assets/base.apk`，并使用 NPatch 自身运行时加载原包代码和资源。外层运行时还可选择显式加载 Frida Gadget，支持 Listen 与同目录 `.so` 文件名的 Script 模式。详细构建、兼容范围和使用说明见 [封装管理器文档](WRAPPER.md)。
 
 ## 支持版本
 

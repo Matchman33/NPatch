@@ -1,6 +1,10 @@
 package top.nkbe.npatch.share;
 
 public final class WrapperConfig {
+    public static final String GADGET_PREFIX = "gadget/";
+    public static final String GADGET_LIBRARY = "libnpatch-gadget.so";
+    public static final String GADGET_CONFIG = "libnpatch-gadget.config.so";
+    public static final String GADGET_SCRIPT = "libscript.so";
     public static final int FORMAT_VERSION = 1;
     public static final String APK_PATH = "assets/base.apk";
     public static final String CONFIG_PATH = "assets/wrapper/config.json";

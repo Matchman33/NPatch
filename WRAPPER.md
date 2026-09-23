@@ -42,14 +42,24 @@ java -jar out/wrapper/apk-wrapper.jar example.apk -o output-signature --signatur
 - 原包缓存使用锁、摘要检查、只读文件和原子发布，继续识别旧 NPatch 的 `assets/npatch/origin.apk` 布局。
 - 独立封装模式关闭管理器依赖、模块发现和模块加载，但保留 Vector/LSPosed 框架初始化。
 - 原签名兼容开关默认关闭；开启时使用原 NPatch 的 SIGBYPASS_EXTREME（等级 3），不再使用 Pine 查询替换。
-- 不修改原包字节，不注入 Gadget，不保证通过目标应用或服务端的所有完整性校验。
+- 不修改 `assets/base.apk` 字节；可选 Frida Gadget 只作为外层运行时资产显式加载，不会写入内层原包。该能力不保证通过目标应用或服务端的所有完整性校验。
 - 当前原框架构建提供 ARM64 和 x86_64，32 位应用不在本构建支持范围内。分包、sharedUserId、isolatedProcess 等仍在输入阶段拒绝。
 - 同时保留外层资源副本和完整原包，大型 APK 仍有明显体积与 I/O 成本，尚未使用 NestedZip 去重。
 
+## Frida Gadget
+
+Gadget 为可选构建资产，默认仓库不包含其二进制。详细目录、Listen/Script 配置和脚本示例见 [Gadget 运行时说明](gadget/README.md)。将对应 ABI 的官方 Gadget 重命名为 `libnpatch-gadget.so` 后放入 `gadget/runtime/<abi>/`，重新构建管理器或 CLI 即可。
+
+运行时只在应用主进程提取并显式执行 `System.load()`。Gadget、配置和脚本会放进同一个应用私有目录。当前只接受 `listen` 和 `script` 两种交互模式；Script 模式的脚本文件固定命名为 `libscript.so`，内容仍是 UTF-8 JavaScript，不是 ELF 文件。配置中的 `interaction.path` 必须使用这个同目录相对文件名。
+
+Listen 示例默认监听 `127.0.0.1:27043` 并在加载时等待连接。Script 示例随进程启动执行，不等待外部客户端。只放置 Gadget 而缺少配置、Script 模式缺少脚本、ABI 与 ELF 不匹配或使用其他交互模式时，封装阶段会拒绝该运行时归档。
+
 ## 验证边界
 
-用户要求暂时关闭 ADB，只做本地测试。本次验证覆盖构建、封装、签名、资源表与原包一致性、框架资产及缓存异常处理；新运行时尚未做设备验收，也没有据此宣称游戏登录已修复。
+已使用官方 Frida 17.18.0 Android ARM64 Gadget 完成本地构建、实际 APK 封装和 Android 15 ARM64 真机 Script 模式验收。脚本在首次启动和不重装冷启动时均实际执行，Gadget 保持映射，smoke 自检全部通过。Listen 外部连接和具体目标应用兼容性仍需分别验证，不能据此宣称游戏登录或完整性校验已修复。
 
 旧版独立加载器/Pine 的测试记录属于历史版本，不能当作本版 NPatch 运行时的设备验证。恢复设备测试后，先使用 example.npatch.smoke 样例检查代码/资源路径、组件、SO 和签名查询，再测试具体目标应用。
 
 本轮结果见 [NPatch 原体系本地验证](docs/testing/2026-09-23-npatch-runtime-local.md)。
+
+Gadget 结果见 [Frida Gadget 本地与真机验证](docs/testing/2026-09-23-frida-gadget-device.md)。
