@@ -57,8 +57,13 @@ public class NeoLocalApplicationService extends IFrameworkService.Stub {
     private final List<LoadedModule> modernModules;
 
     public NeoLocalApplicationService(Context context) {
+        this(context, true);
+    }
+
+    public NeoLocalApplicationService(Context context, boolean discoverModules) {
         legacyModules = Collections.synchronizedList(new ArrayList<>());
         modernModules = Collections.synchronizedList(new ArrayList<>());
+        if (!discoverModules) return;
         ProviderResult providerResult = loadModulesFromProvider(context);
 
         if (providerResult != null) {

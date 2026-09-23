@@ -1714,8 +1714,13 @@ namespace lspd {
         for (jsize i = 0; i < count; ++i) {
             auto root = static_cast<jstring>(env->GetObjectArrayElement(jRoots, i));
             if (root == nullptr) continue;
-            lsplant::JUTFString root_string(env, root);
-            std::string value(root_string.get());
+            std::string value;
+            {
+                lsplant::JUTFString root_string(env, root);
+                if (root_string.get() != nullptr) {
+                    value.assign(root_string.get());
+                }
+            }
             env->DeleteLocalRef(root);
             if (!value.empty()
                 && std::find(moduleNativeLibraryRoots.begin(), moduleNativeLibraryRoots.end(), value)

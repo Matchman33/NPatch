@@ -56,7 +56,7 @@ tasks.register<Delete>("clean") {
     delete(layout.buildDirectory)
 }
 
-listOf("Debug", "Release").forEach { variant ->
+if (findProject(":remote-api") != null) listOf("Debug", "Release").forEach { variant ->
     val variantLower = variant.lowercase()
     val remoteApiTask = tasks.register<Copy>("buildRemoteApi$variant") {
         description = "Build and collect the NPatch Remote API $variant AAR"
@@ -77,7 +77,8 @@ listOf("Debug", "Release").forEach { variant ->
 }
 
 tasks.register("buildAll") {
-    dependsOn("buildDebug", "buildRelease")
+    if (findProject(":remote-api") != null) dependsOn("buildDebug", "buildRelease")
+    else dependsOn(":wrapper-manager:assembleDebug", ":wrapper-cli:fatJar", ":wrapper-patch:test")
 }
 
 fun Project.configureBaseExtension() {

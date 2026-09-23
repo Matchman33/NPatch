@@ -33,6 +33,11 @@ public class OriginApkHelper {
     private static final String NATIVE_CACHE_COMPLETE = ".complete";
 
     public static Path prepareOriginApk(ApplicationInfo appInfo, ClassLoader baseClassLoader) throws IOException {
+        return prepareOriginApk(appInfo, baseClassLoader, null);
+    }
+
+    public static Path prepareOriginApk(ApplicationInfo appInfo, ClassLoader baseClassLoader, String expectedDigest) throws IOException {
+        if (expectedDigest != null) return prepareVerifiedOrigin(appInfo, expectedDigest);
         Path internalOriginDir = Paths.get(appInfo.dataDir, "cache/code_cache/");
         long sourceCrc = getOriginalApkCrc(appInfo.sourceDir);
 
@@ -125,12 +130,67 @@ public class OriginApkHelper {
 
     public static long getOriginalApkCrc(String sourceDir) throws IOException {
         try (ZipFile sourceFile = new ZipFile(sourceDir)) {
-            ZipEntry entry = sourceFile.getEntry(ORIGINAL_APK_ASSET_PATH);
+            ZipEntry entry = originalEntry(sourceFile);
             if (entry == null) {
                 return 0;
             }
             return entry.getCrc();
         }
+    }
+
+    static ZipEntry originalEntry(ZipFile source) {
+        ZipEntry legacy = source.getEntry(ORIGINAL_APK_ASSET_PATH);
+        return legacy != null ? legacy : source.getEntry(top.nkbe.npatch.share.WrapperConfig.APK_PATH);
+    }
+
+    private static Path prepareVerifiedOrigin(ApplicationInfo appInfo, String expectedDigest) throws IOException {
+        if (!expectedDigest.matches("[0-9a-f]{64}")) throw new IOException("Invalid original APK digest");
+        Path directory = Paths.get(appInfo.dataDir, "cache/code_cache");
+        Files.createDirectories(directory);
+        try (FileChannel channel = FileChannel.open(directory.resolve("original.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock ignored = channel.lock(); ZipFile outer = new ZipFile(appInfo.sourceDir)) {
+            ZipEntry entry = originalEntry(outer);
+            if (entry == null) throw new IOException("Missing original APK asset");
+            Path target = directory.resolve(expectedDigest + ".apk");
+            if (!Files.isRegularFile(target) || !expectedDigest.equals(sha256(target))) {
+                Path temporary = Files.createTempFile(directory, "origin-", ".tmp");
+                try {
+                    try (InputStream input = outer.getInputStream(entry); FileOutputStream output = new FileOutputStream(temporary.toFile())) {
+                        if (!temporary.toFile().setReadOnly()) throw new IOException("Cannot protect original APK cache");
+                        byte[] buffer = new byte[65536];
+                        int count;
+                        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                        output.getFD().sync();
+                    }
+                    if (!expectedDigest.equals(sha256(temporary))) throw new IOException("Original APK checksum mismatch");
+                    Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    if (Files.exists(temporary)) {
+                        temporary.toFile().setWritable(true);
+                        Files.deleteIfExists(temporary);
+                    }
+                }
+            }
+            if (!target.toFile().setReadOnly()) throw new IOException("Cannot protect original APK cache");
+            return target;
+        }
+    }
+
+    private static String sha256(Path file) throws IOException {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            try (InputStream input = Files.newInputStream(file)) {
+                byte[] buffer = new byte[65536];
+                int count;
+                while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
+            }
+            StringBuilder result = new StringBuilder(64);
+            for (byte value : digest.digest()) {
+                result.append(Character.forDigit((value >>> 4) & 15, 16));
+                result.append(Character.forDigit(value & 15, 16));
+            }
+            return result.toString();
+        } catch (java.security.NoSuchAlgorithmException error) { throw new AssertionError(error); }
     }
 
     private static String buildNativeLibraryStamp(List<String> apkPaths) {

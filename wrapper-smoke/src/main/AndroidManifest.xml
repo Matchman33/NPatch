@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <application android:name=".MainActivity$App" android:appComponentFactory=".MainActivity$Factory"
+        android:label="@string/app_name" android:icon="@android:drawable/ic_menu_info_details"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false"
+        tools:replace="android:appComponentFactory">
+        <activity android:name=".MainActivity" android:exported="false" />
+        <activity-alias android:name=".Launcher" android:targetActivity=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity android:name=".MainActivity$Second" android:exported="false" />
+        <provider android:name=".MainActivity$Provider" android:authorities="example.npatch.smoke.probe" android:exported="false" />
+        <service android:name=".MainActivity$Service" android:exported="false" />
+        <service android:name=".MainActivity$RemoteService" android:process=":probe" android:exported="false" />
+        <receiver android:name=".MainActivity$Receiver" android:exported="false" />
+    </application>
+</manifest>

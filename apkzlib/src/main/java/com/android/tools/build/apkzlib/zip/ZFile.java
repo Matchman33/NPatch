@@ -2093,20 +2093,6 @@ public class ZFile implements Closeable {
          * Read the data (read directly the compressed source if there is one).
          */
         ProcessedAndRawByteSources fromSource = fromEntry.getSource();
-        InputStream fromInput = fromSource.getRawByteSource().openStream();
-        long sourceSize = fromSource.getRawByteSource().size();
-        if (sourceSize > Integer.MAX_VALUE) {
-          throw new IOException("Cannot read source with " + sourceSize + " bytes.");
-        }
-
-        byte[] data = new byte[Ints.checkedCast(sourceSize)];
-        int read = 0;
-        while (read < data.length) {
-          int r = fromInput.read(data, read, data.length - read);
-          Verify.verify(r >= 0, "There should be at least 'size' bytes in the stream.");
-          read += r;
-        }
-
         /*
          * Build the new source and wrap it around an inflater source if data came from
          * a compressed source.

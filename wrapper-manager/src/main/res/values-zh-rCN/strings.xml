@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">APK 加载器</string>
+    <string name="select_apk">选择 APK</string>
+    <string name="select_app">已安装应用</string>
+    <string name="package_name">外层包名</string>
+    <string name="renamed_package_warning">修改包名可能使按包名读取资源的 SDK 无法正常工作。</string>
+    <string name="filename">APK 文件名</string>
+    <string name="generate">生成 APK</string>
+    <string name="signature_compat">原签名兼容</string>
+    <string name="hook_unsupported">此 NPatch 构建需要 arm64-v8a 或 x86_64 设备。</string>
+    <string name="generated">APK 已生成</string>
+    <string name="export">导出</string>
+    <string name="install">安装</string>
+    <string name="open">打开</string>
+    <string name="share">分享</string>
+    <string name="build_log">生成日志</string>
+    <string name="search">应用名称或包名</string>
+    <string name="close">关闭</string>
+    <string name="no_apps">没有匹配的应用</string>
+    <string name="input_unreadable">无法读取此 APK，请选择完整的 APK 文件。</string>
+    <string name="splits_unsupported">当前版本暂不支持分包应用。</string>
+    <string name="source_updated">提取期间应用发生了更新，请重新选择。</string>
+    <string name="same_package_signature">已安装同包名但签名不同的应用。生成物可以导出，但不能直接覆盖安装。</string>
+    <string name="invalid_filename">文件名需要以 .apk 结尾，且不超过 180 个字符。</string>
+    <string name="package_conflict">此包名已被其他应用或不同签名的应用占用，请更换包名。</string>
+    <string name="input_overwrite">不能覆盖原始 APK，请选择其他保存位置。</string>
+    <string name="output_unwritable">无法写入所选位置。</string>
+    <string name="exported">APK 已导出</string>
+    <string name="exported_to">APK 已导出到 %1$s</string>
+    <string name="install_permission">允许安装后，请再次点击“安装”。</string>
+    <string name="not_installed">请先安装生成的 APK；目标应用需要有桌面启动入口。</string>
+</resources>

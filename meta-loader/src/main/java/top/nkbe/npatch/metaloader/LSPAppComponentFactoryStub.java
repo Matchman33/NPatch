@@ -55,6 +55,7 @@ public class LSPAppComponentFactoryStub extends AppComponentFactory {
     private static volatile Thread bootstrapThread;
     private static volatile String originalFactoryName;
     private static volatile AppComponentFactory originalFactory;
+    private static boolean standalone;
 
     static {
         ABI_BY_INSTRUCTION_SET.put("arm64", "arm64-v8a");
@@ -70,6 +71,7 @@ public class LSPAppComponentFactoryStub extends AppComponentFactory {
     }
 
     @Override
+    @android.annotation.TargetApi(Build.VERSION_CODES.Q)
     public ClassLoader instantiateClassLoader(
             ClassLoader classLoader,
             ApplicationInfo appInfo
@@ -147,6 +149,9 @@ public class LSPAppComponentFactoryStub extends AppComponentFactory {
 
     private static void ensureBootstrapped() {
         BootstrapState state = bootstrapState;
+        if (state == BootstrapState.FAILED && standalone) {
+            throw new IllegalStateException("NPatch bootstrap failed at " + bootstrapStage);
+        }
         if (state == BootstrapState.SUCCEEDED
                 || state == BootstrapState.FAILED
                 || state == BootstrapState.SKIPPED_APP_ZYGOTE) {
@@ -187,6 +192,7 @@ public class LSPAppComponentFactoryStub extends AppComponentFactory {
                 clearDexBuffer();
                 Log.e(TAG, "Bootstrap failed at " + bootstrapStage, error);
                 writeDiagnostic(error);
+                if (standalone) throw new IllegalStateException("NPatch bootstrap failed at " + bootstrapStage, error);
                 // AppComponentFactory is also responsible for constructing the original app.
                 // Do not poison class initialization: component methods below can still delegate
                 // to the original factory or framework default after NPatch bootstrap fails.
@@ -259,6 +265,8 @@ public class LSPAppComponentFactoryStub extends AppComponentFactory {
                 String name = reader.nextName();
                 if ("hideLibs".equals(name)) {
                     hideLibs = reader.nextBoolean();
+                } else if ("standalone".equals(name)) {
+                    standalone = reader.nextBoolean();
                 } else if ("sigBypassLevel".equals(name)) {
                     sigBypassLevel = reader.nextInt();
                 } else if ("appComponentFactory".equals(name)) {

@@ -234,14 +234,16 @@ public class LSPApplication {
         activityThread = ActivityThread.currentActivityThread();
         var context = createLoadedApkWithContext();
         if (context == null) {
+            if (config != null && config.standalone) throw new IllegalStateException("Cannot create original APK runtime context");
             XLog.e(TAG, "Error when creating context");
             return;
         }
 
         logInfo("Initialize service client");
         IFrameworkService service = null;
+        if (config.standalone) service = new NeoLocalApplicationService(context, false);
 
-        if (config.useManager) {
+        if (config.useManager && !config.standalone) {
             try {
                 service = new RemoteApplicationService(context);
                 List<LoadedModule> legacyModules = service.getLegacyModules();
@@ -304,10 +306,10 @@ public class LSPApplication {
         // before forkPostCommon is invoke. Otherwise, you will get failure of XResources
 
         logInfo("Load modules");
-        LSPLoader.initModules(appLoadedApk);
+        if (!config.standalone) LSPLoader.initModules(appLoadedApk);
         logInfo("Modules initialized");
 
-        if (!config.useManager) {
+        if (!config.useManager && !config.standalone) {
             for (String modulePkg : VectorModuleManager.INSTANCE.loadedModulePackages()) {
                 try {
                     ClassLoader moduleCl = VectorModuleManager.INSTANCE.getModuleClassLoader(modulePkg);
@@ -328,7 +330,7 @@ public class LSPApplication {
             }
         }
         try {
-            CacheCleaner.sweepModuleNativeCache(context.getApplicationInfo(), LSPLoader.getActiveModuleApkPaths());
+            if (!config.standalone) CacheCleaner.sweepModuleNativeCache(context.getApplicationInfo(), LSPLoader.getActiveModuleApkPaths());
         } catch (Throwable e) {
             Log.w(TAG, "Failed to sweep LoadedModule native cache", e);
         }
@@ -418,8 +420,8 @@ public class LSPApplication {
 
             String loadedApkSourceDir = patchedApkPath;
             boolean loadedApkUsesOriginCache = false;
-            if (config.lspConfig.sigBypassLevel >= Constants.SIGBYPASS_BASIC) {
-                Path cacheApkPath = OriginApkHelper.prepareOriginApk(appInfo, baseClassLoader);
+            if (config.standalone || config.lspConfig.sigBypassLevel >= Constants.SIGBYPASS_BASIC) {
+                Path cacheApkPath = OriginApkHelper.prepareOriginApk(appInfo, baseClassLoader, config.embeddedApkSha256);
                 Path nativeLibraryDir = OriginApkHelper.prepareNativeLibraryDir(appInfo, cacheApkPath, patchedApkPath);
                 SigBypass.setPaths(cacheApkPath.toString(), patchedApkPath);
                 SigBypass.setOriginalSignature(config.newPackage, config.originalSignature);
@@ -433,12 +435,14 @@ public class LSPApplication {
                     appInfo.nativeLibraryDir = nativeLibraryDir.toString();
                 }
                 try {
-                    CacheCleaner.sweepOriginApkCache(appInfo, OriginApkHelper.getOriginalApkCrc(patchedApkPath));
+                    if (!config.standalone) {
+                        CacheCleaner.sweepOriginApkCache(appInfo, OriginApkHelper.getOriginalApkCrc(patchedApkPath));
+                    }
                 } catch (IOException e) {
                     Log.w(TAG, "Failed to sweep origin apk cache", e);
                 }
             }
-            if (config.lspConfig.sigBypassLevel >= Constants.SIGBYPASS_HIGH) {
+            if (config.standalone || config.lspConfig.sigBypassLevel >= Constants.SIGBYPASS_HIGH) {
                 appInfo.appComponentFactory = config.appComponentFactory;
             } else {
                 appInfo.appComponentFactory = null;
@@ -500,7 +504,12 @@ public class LSPApplication {
                 }
             }
 
-            restoreVisibleApplicationInfo(mBoundApplication, appInfo, patchedApkPath);
+            if (config.standalone) {
+                setLoadedApkPathField(stubLoadedApk, "mAppDir", loadedApkSourceDir);
+                setLoadedApkPathField(stubLoadedApk, "mResDir", loadedApkSourceDir);
+            } else {
+                restoreVisibleApplicationInfo(mBoundApplication, appInfo, patchedApkPath);
+            }
             XposedHelpers.setObjectField(mBoundApplication, "info", appLoadedApk);
 
             var activityClientRecordClass = XposedHelpers.findClass("android.app.ActivityThread$ActivityClientRecord", ActivityThread.class.getClassLoader());
@@ -524,7 +533,8 @@ public class LSPApplication {
             }
             Log.i(TAG, "hooked app initialized: " + appLoadedApk);
 
-            var context = (Context) XposedHelpers.callStaticMethod(Class.forName("android.app.ContextImpl"), "createAppContext", activityThread, stubLoadedApk);
+            var context = (Context) XposedHelpers.callStaticMethod(Class.forName("android.app.ContextImpl"), "createAppContext", activityThread,
+                    config.standalone ? appLoadedApk : stubLoadedApk);
             if (config.appComponentFactory != null) {
                 try {
                     appLoadedApk.getClassLoader().loadClass(config.appComponentFactory);

@@ -25,25 +25,33 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "NPatch"
-include(
-    ":apkzlib",
-    ":jar",
-    ":manager",
-    ":meta-loader",
-    ":patch",
-    ":patch-loader",
-    ":remote-api",
-    ":share:android",
-    ":share:java",
-)
+val standaloneWrapper = providers.gradleProperty("standaloneWrapper").orNull == "true"
+if (standaloneWrapper) {
+    include(":apkzlib", ":share:java", ":wrapper-loader", ":wrapper-patch", ":wrapper-manager", ":wrapper-cli")
+    include(":wrapper-smoke")
+    include(":meta-loader", ":patch-loader", ":share:android")
+} else {
+    include(
+        ":apkzlib",
+        ":jar",
+        ":manager",
+        ":meta-loader",
+        ":patch",
+        ":patch-loader",
+        ":remote-api",
+        ":share:android",
+        ":share:java",
+    )
+
+}
 
 includeBuild("core") {
-    dependencySubstitution {
-        substitute(module("vector:axml")).using(project(":external:axml"))
-        substitute(module("vector:bridge")).using(project(":hiddenapi:bridge"))
-        substitute(module("vector:legacy")).using(project(":legacy"))
-        substitute(module("vector:core")).using(project(":xposed"))
-        substitute(module("vector:daemon-service")).using(project(":services:daemon-service"))
-        substitute(module("vector:stubs")).using(project(":hiddenapi:stubs"))
-    }
+        dependencySubstitution {
+            substitute(module("vector:axml")).using(project(":external:axml"))
+            substitute(module("vector:bridge")).using(project(":hiddenapi:bridge"))
+            substitute(module("vector:legacy")).using(project(":legacy"))
+            substitute(module("vector:core")).using(project(":xposed"))
+            substitute(module("vector:daemon-service")).using(project(":services:daemon-service"))
+            substitute(module("vector:stubs")).using(project(":hiddenapi:stubs"))
+        }
 }

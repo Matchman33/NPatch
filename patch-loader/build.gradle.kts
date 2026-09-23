@@ -4,7 +4,8 @@ plugins {
     alias(libs.plugins.agp.app)
 }
 
-extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
+android {
+    testOptions.unitTests.isReturnDefaultValues = true
     ndkVersion = "29.0.13846066"
     defaultConfig {
         multiDexEnabled = false
@@ -88,6 +89,7 @@ androidComponents.onVariants { variant ->
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     compileOnly("vector:stubs")
     implementation("vector:core")
     implementation("vector:bridge")

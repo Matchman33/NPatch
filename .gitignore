@@ -13,6 +13,7 @@ libxposed
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+/wrapper-*/build/
 /captures
 .externalNativeBuild
 .cxx

@@ -137,13 +137,19 @@ public class SigBypass {
     private record CallerContext(boolean isModule, boolean isSensitive) {}
 
     private static CallerContext checkCallerContext() {
-        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        return checkCallerContext(Thread.currentThread().getStackTrace());
+    }
+
+    private static CallerContext checkCallerContext(StackTraceElement[] stack) {
         boolean isModule = false;
         boolean isSensitive = false;
         // Limit depth to 20 for performance
         int depth = Math.min(stack.length, 25);
         for (int i = 2; i < depth; i++) {
             String className = stack[i].getClassName();
+            if (isHookInfrastructureFrame(className)) {
+                continue;
+            }
             if (!isModule) {
                 for (String prefix : moduleCallerPrefixes) {
                     if (className.startsWith(prefix)) {
@@ -166,6 +172,19 @@ public class SigBypass {
             if (isModule && isSensitive) break;
         }
         return new CallerContext(isModule, isSensitive);
+    }
+
+    private static boolean isHookInfrastructureFrame(String className) {
+        return className.startsWith("top.nkbe.npatch.loader.")
+                || className.startsWith("org.matrix.vector.")
+                || className.startsWith("de.robv.android.xposed.")
+                || className.startsWith("org.lsposed.lspd.")
+                || className.startsWith("io.github.libxposed.api.")
+                || className.startsWith("LSPHooker_");
+    }
+
+    static boolean isModuleCaller(StackTraceElement[] stack) {
+        return checkCallerContext(stack).isModule;
     }
 
     private static boolean isModuleCaller() {
@@ -323,6 +342,17 @@ public class SigBypass {
         }
     }
 
+    private static Object getObjectFieldQuietly(Object target, String... fieldNames) {
+        if (target == null) return null;
+        for (String fieldName : fieldNames) {
+            try {
+                return XposedHelpers.getObjectField(target, fieldName);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
     private static void replaceSigningDetails(Context context, PackageInfo packageInfo) {
         if (packageInfo == null) return;
         boolean hasSignature = (packageInfo.signatures != null && packageInfo.signatures.length != 0)
@@ -352,13 +382,15 @@ public class SigBypass {
                     replaceSignatureArray(history, replacements);
                 }
                 // Try to replace internal fields if methods don't work or for deeper coverage
-                Object mSigningDetails = XposedHelpers.getObjectField(signingInfo, "mSigningDetails");
+                Object mSigningDetails = getObjectFieldQuietly(signingInfo, "mSigningDetails");
                 if (mSigningDetails != null) {
-                    Signature[] pastSignatures = (Signature[]) XposedHelpers.getObjectField(mSigningDetails, "pastSigningCertificates");
+                    Signature[] pastSignatures = (Signature[]) getObjectFieldQuietly(
+                            mSigningDetails, "mPastSigningCertificates", "pastSigningCertificates");
                     if (pastSignatures != null && pastSignatures.length > 0) {
                         replaceSignatureArray(pastSignatures, replacements);
                     }
-                    Signature[] currentSignatures = (Signature[]) XposedHelpers.getObjectField(mSigningDetails, "signatures");
+                    Signature[] currentSignatures = (Signature[]) getObjectFieldQuietly(
+                            mSigningDetails, "mSignatures", "signatures");
                     if (currentSignatures != null && currentSignatures.length > 0) {
                         replaceSignatureArray(currentSignatures, replacements);
                     }
@@ -731,12 +763,52 @@ public class SigBypass {
                     }
                 }
             };
-            XposedBridge.hookAllMethods(PackageManager.class, "hasSigningCertificate", hook);
+            boolean hookedAny = false;
+            PackageManager packageManager = context.getPackageManager();
             try {
-                XposedBridge.hookAllMethods(Class.forName("android.app.ApplicationPackageManager"), "hasSigningCertificate", hook);
-            } catch (Throwable ignored) {
+                Class<?> appPm = packageManager.getClass();
+                XposedBridge.hookMethod(appPm.getMethod(
+                        "hasSigningCertificate", String.class, byte[].class, int.class), hook);
+                hookedAny = true;
+            } catch (Throwable e) {
+                Log.w(TAG, "fail to hook package hasSigningCertificate", e);
             }
-            hasSigningCertificateHooked = true;
+            try {
+                Class<?> appPm = packageManager.getClass();
+                XposedBridge.hookMethod(appPm.getMethod(
+                        "hasSigningCertificate", int.class, byte[].class, int.class), hook);
+                hookedAny = true;
+            } catch (Throwable e) {
+                Log.w(TAG, "fail to hook uid hasSigningCertificate", e);
+            }
+            try {
+                Object remotePackageManager = XposedHelpers.getObjectField(packageManager, "mPM");
+                Class<?> remoteClass = remotePackageManager.getClass();
+                boolean hookedRemote = false;
+                hookedRemote |= !XposedBridge.hookAllMethods(
+                        remoteClass, "hasSigningCertificate", hook).isEmpty();
+                hookedRemote |= !XposedBridge.hookAllMethods(
+                        remoteClass, "hasUidSigningCertificate", hook).isEmpty();
+                hookedAny |= hookedRemote;
+                if (!hookedRemote) {
+                    Log.w(TAG, "no remote signing certificate methods were hooked on "
+                            + remoteClass.getName());
+                }
+            } catch (Throwable e) {
+                Log.w(TAG, "fail to hook remote signing certificate queries", e);
+            }
+            if (!hookedAny) {
+                try {
+                    hookedAny = !XposedBridge.hookAllMethods(
+                            PackageManager.class, "hasSigningCertificate", hook).isEmpty();
+                } catch (Throwable e) {
+                    Log.w(TAG, "fail to hook fallback hasSigningCertificate", e);
+                }
+            }
+            hasSigningCertificateHooked = hookedAny;
+            if (!hookedAny) {
+                Log.w(TAG, "no hasSigningCertificate overloads were hooked");
+            }
         } catch (Throwable e) {
             Log.w(TAG, "fail to hook hasSigningCertificate", e);
         }
@@ -747,7 +819,7 @@ public class SigBypass {
         if (!cacheDir.exists() && !cacheDir.mkdirs()) return null;
 
         try (ZipFile sourceFile = new ZipFile(context.getPackageResourcePath())) {
-            ZipEntry entry = sourceFile.getEntry(ORIGINAL_APK_ASSET_PATH);
+            ZipEntry entry = OriginApkHelper.originalEntry(sourceFile);
             if (entry == null) return null;
 
             File targetFile = new File(cacheDir, entry.getCrc() + ".apk");

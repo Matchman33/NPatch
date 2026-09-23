@@ -1,6 +1,8 @@
 package top.nkbe.npatch.share;
 
 public class PatchConfig {
+    public boolean standalone;
+    public String embeddedApkSha256;
 
     public final boolean useManager;
     public final boolean debuggable;

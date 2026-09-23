@@ -7,6 +7,11 @@
     public static void onLoad();
 }
 
+# loader.bin runs in an InMemoryDexClassLoader whose parent is the target APK.
+# A private package prevents parent-first lookup from resolving R8's short names
+# (a, b, c, ...) to unrelated classes in the target or meta-loader DEX.
+-repackageclasses top.nkbe.npatch.loader.internal
+
 # Gson serializes/deserializes these by field name across patcher, manager and loader.
 -keep class top.nkbe.npatch.share.PatchConfig { *; }
 -keep class top.nkbe.npatch.share.LSPConfig { *; }

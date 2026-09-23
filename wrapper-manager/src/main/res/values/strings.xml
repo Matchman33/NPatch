@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">APK Loader</string>
+    <string name="select_apk">Select APK</string>
+    <string name="select_app">Installed apps</string>
+    <string name="package_name">Wrapper package name</string>
+    <string name="renamed_package_warning">Changing the package name may break SDKs that look up resources by package name.</string>
+    <string name="filename">APK filename</string>
+    <string name="generate">Generate APK</string>
+    <string name="signature_compat">Original signature compatibility</string>
+    <string name="hook_unsupported">This NPatch build requires an arm64-v8a or x86_64 device.</string>
+    <string name="generated">APK ready</string>
+    <string name="export">Export</string>
+    <string name="install">Install</string>
+    <string name="open">Open</string>
+    <string name="share">Share</string>
+    <string name="build_log">Build log</string>
+    <string name="search">Name or package</string>
+    <string name="close">Close</string>
+    <string name="no_apps">No matching apps</string>
+    <string name="input_unreadable">Cannot read this APK. Select a complete APK file.</string>
+    <string name="splits_unsupported">Split APK apps are not supported in this version.</string>
+    <string name="source_updated">The app updated during extraction. Select it again.</string>
+    <string name="same_package_signature">An app with this package name and a different signature is installed. You can export the APK, but cannot install it as an update.</string>
+    <string name="invalid_filename">Use a valid filename ending in .apk, at most 180 characters.</string>
+    <string name="package_conflict">This package name belongs to another app or signing key. Choose another name.</string>
+    <string name="input_overwrite">Choose a different destination. The original APK cannot be overwritten.</string>
+    <string name="output_unwritable">Cannot write to the selected destination.</string>
+    <string name="exported">APK exported</string>
+    <string name="exported_to">APK exported to %1$s</string>
+    <string name="install_permission">After allowing installation, tap Install again.</string>
+    <string name="not_installed">Install the generated APK first. The app must have a launcher activity.</string>
+</resources>

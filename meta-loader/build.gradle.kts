@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.agp.app)
 }
 
-extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
+android {
     defaultConfig {
         multiDexEnabled = false
     }
