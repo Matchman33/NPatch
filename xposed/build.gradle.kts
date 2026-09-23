@@ -30,6 +30,9 @@ android {
 }
 
 dependencies {
+    if (!file("libxposed/api/src/main/java").isDirectory) {
+        api("io.github.libxposed:api:102.0.0")
+    }
     implementation(projects.external.axml)
     implementation(projects.hiddenapi.bridge)
     implementation(projects.services.daemonService)

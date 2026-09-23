@@ -17,6 +17,10 @@ android {
 }
 
 dependencies {
+    if (!file("../libxposed/service/src/main").isDirectory) {
+        api("io.github.libxposed:service:102.0.0")
+        api("io.github.libxposed:interface:102.0.0")
+    }
     compileOnly(libs.androidx.annotation)
     compileOnly(libs.libxposed.annotation)
     compileOnly(projects.hiddenapi.stubs)
