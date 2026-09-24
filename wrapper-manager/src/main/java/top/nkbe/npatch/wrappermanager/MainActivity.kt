@@ -117,7 +117,7 @@ private fun WrapperScreen(initialUri: Uri?, model: WrapperViewModel = viewModel(
     val notInstalled = stringResource(R.string.not_installed)
     var showApps by rememberSaveable { mutableStateOf(false) }
     var consumedUri by rememberSaveable { mutableStateOf(false) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val picker = rememberLauncherForActivityResult(ApkPickerContract()) { uri ->
         if (uri != null) model.selectUri(uri)
     }
     val gadgetPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -139,7 +139,7 @@ private fun WrapperScreen(initialUri: Uri?, model: WrapperViewModel = viewModel(
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { picker.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream")) }, enabled = !state.busy) {
+                OutlinedButton(onClick = { picker.launch(Unit) }, enabled = !state.busy) {
                     Icon(Icons.Outlined.FolderOpen, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text(stringResource(R.string.select_apk))
                 }
