@@ -90,7 +90,7 @@ public class WrapperPackerTest {
         assertArrayEquals(new byte[] {10, 20}, Files.readAllBytes(output.toPath()));
     }
 
-    @Test public void retainsResourceTableBytesAndPackageNamespace() throws Exception {
+    @Test public void retainsResourceTableBytesWhenPackageNameIsUnchanged() throws Exception {
         File input = new File(temporary.getRoot(), "Resources.apk");
         var buffer = java.nio.ByteBuffer.allocate(300).order(java.nio.ByteOrder.LITTLE_ENDIAN);
         buffer.putShort((short) 2).putShort((short) 12).putInt(300).putInt(1);
@@ -107,6 +107,25 @@ public class WrapperPackerTest {
             ZipEntry resources = zip.getEntry("resources.arsc");
             assertEquals(ZipEntry.STORED, resources.getMethod());
             assertArrayEquals(table, zip.getInputStream(resources).readAllBytes());
+            assertArrayEquals(Files.readAllBytes(input.toPath()),
+                    zip.getInputStream(zip.getEntry(WrapperConfig.APK_PATH)).readAllBytes());
+        }
+    }
+
+    @Test public void rewritesOuterResourcePackageWithoutChangingEmbeddedApk() throws Exception {
+        File input = new File(temporary.getRoot(), "Resources-renamed.apk");
+        byte[] table = resourceTable("example.original");
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(input.toPath()))) {
+            entry(zip, "AndroidManifest.xml", manifest(null));
+            entry(zip, "resources.arsc", table);
+        }
+        File output = new File(temporary.getRoot(), "Resources-renamed-wrapped.apk");
+        pack(input, output, "example.renamed");
+        try (ZipFile zip = new ZipFile(output)) {
+            ZipEntry resources = zip.getEntry("resources.arsc");
+            assertEquals(ZipEntry.STORED, resources.getMethod());
+            byte[] rewritten = zip.getInputStream(resources).readAllBytes();
+            assertEquals("example.renamed", resourcePackageName(rewritten));
             assertArrayEquals(Files.readAllBytes(input.toPath()),
                     zip.getInputStream(zip.getEntry(WrapperConfig.APK_PATH)).readAllBytes());
         }
@@ -164,9 +183,27 @@ public class WrapperPackerTest {
     }
 
     private void pack(File input, File output) throws Exception {
+        pack(input, output, "example.original");
+    }
+
+    private void pack(File input, File output, String targetPackage) throws Exception {
         try (var key = new FileInputStream(new File(System.getProperty("repoRoot"), "jar/src/main/assets/npatch.key"))) {
-            WrapperPacker.pack(input, output, "example.original", loader(), WrapperSigning.builtin(key), runtime(), false, ignored -> {});
+            WrapperPacker.pack(input, output, targetPackage, loader(), WrapperSigning.builtin(key), runtime(), false, ignored -> {});
         }
+    }
+
+    private static byte[] resourceTable(String packageName) {
+        var buffer = java.nio.ByteBuffer.allocate(300).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        buffer.putShort((short) 2).putShort((short) 12).putInt(300).putInt(1);
+        buffer.putShort((short) 0x0200).putShort((short) 288).putInt(288).putInt(0x7f);
+        buffer.put(packageName.getBytes(java.nio.charset.StandardCharsets.UTF_16LE));
+        return buffer.array();
+    }
+
+    private static String resourcePackageName(byte[] table) {
+        int end = 24;
+        while (end + 1 < 24 + 256 && (table[end] != 0 || table[end + 1] != 0)) end += 2;
+        return new String(table, 24, end - 24, java.nio.charset.StandardCharsets.UTF_16LE);
     }
 
     @Test public void embedsVerifiedRuntimeAndRetainsOriginalWhenSignatureModeIsEnabled() throws Exception {

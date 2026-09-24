@@ -21,6 +21,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
+    private static final String ORIGINAL_PACKAGE = "example.npatch.smoke";
     private static boolean applicationReady, providerReady, serviceReady, receiverReady, factoryReady, viewReady;
     private static boolean codePathReady;
     private static boolean signatureReady;
@@ -45,6 +46,8 @@ public class MainActivity extends Activity {
                 boolean classLoader = sameClassLoader;
                 boolean resource = "Loader Smoke Test".equals(getString(R.string.app_name));
                 boolean namedResource = getResources().getIdentifier("smoke", "layout", getPackageName()) == R.layout.smoke;
+                boolean originalNamedResource = getResources().getIdentifier(
+                        "smoke", "layout", ORIGINAL_PACKAGE) == R.layout.smoke;
                 android.graphics.Path path = new android.graphics.Path();
                 path.moveTo(0, 0);
                 path.lineTo(10, 10);
@@ -52,13 +55,14 @@ public class MainActivity extends Activity {
                 androidx.graphics.path.PathIterator iterator = new androidx.graphics.path.PathIterator(path,
                         androidx.graphics.path.PathIterator.ConicEvaluation.AsConic, 0.25f);
                 boolean nativeLibrary = iterator.hasNext() && iterator.calculateSize(false) > 0;
-                boolean pass = applicationReady && providerReady && serviceReady && receiverReady && factoryReady && viewReady && query && classLoader && resource && namedResource && nativeLibrary && codePathReady && signatureReady;
+                boolean pass = applicationReady && providerReady && serviceReady && receiverReady && factoryReady && viewReady && query && classLoader && resource && namedResource && originalNamedResource && nativeLibrary && codePathReady && signatureReady;
                 String result = (pass ? "PASS" : "FAIL") + "\npackage=" + getPackageName() + "\nlaunches=" + count
                         + "\napplication=" + applicationReady + " provider=" + providerReady
                         + "\nservice=" + serviceReady + " receiver=" + receiverReady
                         + "\nfactory=" + factoryReady + " customView=" + viewReady
                         + "\nproviderQuery=" + query + " classLoader=" + classLoader + " resources=" + resource
                         + "\nnativeLibrary=" + nativeLibrary + " codePath=" + codePathReady + " namedResource=" + namedResource
+                        + " originalNamedResource=" + originalNamedResource
                         + " signatures=" + signatureReady;
                 ((TextView) findViewById(R.id.result)).setText(result);
                 Log.i("WrapperSmoke", result.replace('\n', ' '));
@@ -93,13 +97,19 @@ public class MainActivity extends Activity {
                 boolean sourceMatchesCode = sourceDir.equals(codePath);
                 boolean codeMatchesResources = codePath.equals(resourcePath);
                 boolean publicMatchesSource = publicSourceDir.equals(sourceDir);
+                boolean resourceIsWrapper = resourceApk.getEntry("assets/base.apk") != null;
+                boolean renamed = !ORIGINAL_PACKAGE.equals(base.getPackageName());
                 boolean dexMatches = apk.getEntry("classes.dex").getCrc()
                         == resourceApk.getEntry("classes.dex").getCrc();
+                boolean resourcePathReady = renamed
+                        ? resourceIsWrapper && !codeMatchesResources
+                        : codeMatchesResources && !resourceIsWrapper;
                 codePathReady = sourceIsOriginal && publicMatchesSource
-                        && codeMatchesResources && dexMatches;
+                        && resourcePathReady && dexMatches;
                 Log.i("WrapperSmoke", "CODE_PATH sourceIsOriginal=" + sourceIsOriginal
                         + " sourceMatchesCode=" + sourceMatchesCode
                         + " codeMatchesResources=" + codeMatchesResources
+                        + " resourceIsWrapper=" + resourceIsWrapper
                         + " publicMatchesSource=" + publicMatchesSource
                         + " dexMatches=" + dexMatches + " source=" + sourceDir
                         + " public=" + publicSourceDir + " code=" + codePath

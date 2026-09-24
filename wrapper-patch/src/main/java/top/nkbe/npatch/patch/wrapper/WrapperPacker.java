@@ -63,6 +63,7 @@ public final class WrapperPacker {
         }
         WrapperManifest manifest = inspect(input);
         WrapperManifest.validatePackage(targetPackage);
+        boolean packageRenamed = !targetPackage.equals(manifest.packageName);
         WrapperConfig config = new WrapperConfig();
         config.originalPackage = manifest.packageName;
         config.wrapperPackage = targetPackage;
@@ -107,7 +108,7 @@ public final class WrapperPacker {
         Files.delete(temporary.toPath());
         try {
             log.accept("Building " + targetPackage);
-            if (!targetPackage.equals(manifest.packageName)) log.accept("Explicit package rename: dynamic resource lookups may be incompatible");
+            if (packageRenamed) log.accept("Rewriting resource package namespace for " + targetPackage);
             ZFileOptions options = new ZFileOptions().setNoTimestamps(true).setAlignmentRule(
                     AlignmentRules.compose(AlignmentRules.constantForSuffix(".so", 16384),
                             AlignmentRules.constantForSuffix(WrapperConfig.APK_PATH, 4096),
@@ -141,6 +142,8 @@ public final class WrapperPacker {
                     if (entry.isDirectory() || name.equals("AndroidManifest.xml")
                             || signatureEntry(name)) {
                         excluded.add(name);
+                    } else if (packageRenamed && name.equals("resources.arsc")) {
+                        excluded.add(name);
                     } else if (entry.getMethod() != ZipEntry.STORED
                             && (name.endsWith(".so") || name.equals("resources.arsc"))) {
                         excluded.add(name);
@@ -156,6 +159,17 @@ public final class WrapperPacker {
                     ZipEntry entry = original.getEntry(name);
                     try (InputStream contents = original.getInputStream(entry)) {
                         destination.add(name, contents, false);
+                    }
+                }
+                if (packageRenamed) {
+                    ZipEntry resources = original.getEntry("resources.arsc");
+                    if (resources != null) {
+                        byte[] resourceTable;
+                        try (InputStream contents = original.getInputStream(resources)) {
+                            resourceTable = ByteStreams.toByteArray(contents);
+                        }
+                        destination.add("resources.arsc", new ByteArrayInputStream(
+                                WrapperResources.rewrite(resourceTable, manifest.packageName, targetPackage)), false);
                     }
                 }
                 destination.add("AndroidManifest.xml", new ByteArrayInputStream(rewritten));

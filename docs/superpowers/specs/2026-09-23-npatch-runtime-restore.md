@@ -6,7 +6,7 @@
 
 直接构建并使用仓库原有的 meta-loader、patch-loader 和 core，启动链为 LSPAppComponentFactoryStub → libnpatch → LSPApplication → Vector/LSPosed → LSPlant。wrapper-loader 仅收集这些构建产物，不含另一套运行时代码。
 
-简化管理器和 CLI 默认保留原包名。Manifest 中的原权限、Provider authority、process、taskAffinity 在同包名模式下保持原值，组件类名规范化但不改业务身份；资源表保持原字节。显式指定新包名仍可生成，但提示动态资源查询兼容风险，不再改写 resources.arsc。
+简化管理器和 CLI 默认保留原包名。Manifest 中的原权限、Provider authority、process、taskAffinity 在同包名模式下保持原值，组件类名规范化但不改业务身份；资源表保持原字节。显式指定新包名时，外层 `resources.arsc` 的主包命名空间会定长改为新包名，运行时同时兼容原包名和新包名的动态资源查询；内嵌 `assets/base.apk` 不修改。
 
 保留完整原包于 assets/base.apk。原 NPatch 的 OriginApkHelper 同时识别旧 assets/npatch/origin.apk 布局。独立封装模式传入 SHA-256，采用锁、只读临时文件、摘要校验、原子发布；校验失败不发布缓存，损坏缓存可重建。
 
@@ -26,4 +26,4 @@ PatchConfig 增加 standalone 和 embeddedApkSha256。standalone 强制从原包
 
 ## 验收
 
-本地验证原入口和 Vector/Xposed 类存在、Pine 依赖/资产移除、ARM64/x86_64 原生库可构建、同包名与原资源表保持、NPatch 配置格式及原包 SHA-256、签名、缓存错误处理。设备运行、签名兼容效果和游戏登录仍需后续单独验证。
+本地验证原入口和 Vector/Xposed 类存在、Pine 依赖/资产移除、ARM64/x86_64 原生库可构建、同包名与原资源表保持、NPatch 配置格式及原包 SHA-256、签名、缓存错误处理。2026-09-24 已补充重命名资源表与新旧包名动态查询真机验证；具体游戏登录和服务端正版校验仍需针对目标应用单独验证。
