@@ -10,3 +10,4 @@
 gadget/examples/**/*.so text eol=lf diff
 *.dex binary
 *.jar binary
+*.apk binary

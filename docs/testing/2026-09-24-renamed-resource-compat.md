@@ -12,6 +12,12 @@
 
 ## 本地验证
 
+固定测试输入为：
+
+```text
+wrapper-smoke/fixtures/wrapper-smoke-base.apk
+```
+
 以下命令构建成功：
 
 ```powershell

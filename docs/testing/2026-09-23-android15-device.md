@@ -47,7 +47,8 @@ code_cache/wrapper/<原包摘要>/arm64-v8a/libandroidx.graphics.path.so
 .\gradlew.bat -PstandaloneWrapper=true :wrapper-smoke:assembleDebug
 ```
 
-样例包：`wrapper-smoke/build/outputs/apk/debug/wrapper-smoke-debug.apk`。样例是独立测试项目，不随管理器打包。
+固定样例母版：`wrapper-smoke/fixtures/wrapper-smoke-base.apk`。其源码位于
+`wrapper-smoke`，样例是独立测试项目，不随管理器打包。
 
 本机证据保存在 `out/wrapper/device/`：
 
