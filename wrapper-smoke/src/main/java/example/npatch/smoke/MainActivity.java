@@ -38,7 +38,9 @@ public class MainActivity extends Activity {
         findViewById(R.id.second).setOnClickListener(v -> startActivity(new Intent(this, Second.class)));
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             try (Cursor cursor = getContentResolver().query(Uri.parse("content://" + getPackageName() + ".probe"), null, null, null, null)) {
-                boolean query = cursor != null && cursor.moveToFirst() && getPackageName().equals(cursor.getString(0));
+                String currentPackage = getPackageName();
+                boolean packageIdentity = ORIGINAL_PACKAGE.equals(currentPackage);
+                boolean query = cursor != null && cursor.moveToFirst() && currentPackage.equals(cursor.getString(0));
                 ClassLoader contextLoader = getClassLoader();
                 ClassLoader activityLoader = MainActivity.class.getClassLoader();
                 boolean sameClassLoader = contextLoader == activityLoader;
@@ -56,7 +58,9 @@ public class MainActivity extends Activity {
                         androidx.graphics.path.PathIterator.ConicEvaluation.AsConic, 0.25f);
                 boolean nativeLibrary = iterator.hasNext() && iterator.calculateSize(false) > 0;
                 boolean pass = applicationReady && providerReady && serviceReady && receiverReady && factoryReady && viewReady && query && classLoader && resource && namedResource && originalNamedResource && nativeLibrary && codePathReady && signatureReady;
-                String result = (pass ? "PASS" : "FAIL") + "\npackage=" + getPackageName() + "\nlaunches=" + count
+                String result = (pass ? "PASS" : "FAIL") + "\npackage=" + currentPackage
+                        + "\nexpectedPackage=" + ORIGINAL_PACKAGE + " packageIdentity=" + packageIdentity
+                        + "\nlaunches=" + count
                         + "\napplication=" + applicationReady + " provider=" + providerReady
                         + "\nservice=" + serviceReady + " receiver=" + receiverReady
                         + "\nfactory=" + factoryReady + " customView=" + viewReady
@@ -66,6 +70,8 @@ public class MainActivity extends Activity {
                         + " signatures=" + signatureReady;
                 ((TextView) findViewById(R.id.result)).setText(result);
                 Log.i("WrapperSmoke", result.replace('\n', ' '));
+                Log.i("WrapperSmoke", "PACKAGE_IDENTITY " + (packageIdentity ? "PASS" : "FAIL")
+                        + " current=" + currentPackage + " expected=" + ORIGINAL_PACKAGE);
                 Log.i("WrapperSmoke", "CLASSLOADER same=" + sameClassLoader
                         + " path=" + classLoaderPath + " source=" + getApplicationInfo().sourceDir
                         + " context=" + contextLoader + " activity=" + activityLoader);

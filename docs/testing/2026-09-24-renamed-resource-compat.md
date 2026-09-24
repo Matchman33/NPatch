@@ -31,8 +31,10 @@ wrapper-smoke/fixtures/wrapper-smoke-base.apk
 - 外层 `resources.arsc` 包含 `example.npatch.renamed`，不再包含
   `example.npatch.smoke`。
 - 外层资源表保持 `STORED`。
-- `assets/base.apk` 与输入 APK 的 SHA-256 均为
-  `0e81aa751e2a947c78e9fc7196d25c828685b37b3d579625e831159f54601d22`。
+- 当前固定母版 APK 的 SHA-256 为
+  `4a2dfbd7e7c501717d77766d511f9fb67d349d3ac0005101d6a72f35d3a3439b`。
+- 重新执行重命名封装时，仍需确认 `assets/base.apk` 与本次输入 APK 的
+  SHA-256 完全相同。
 
 ## 真机验证
 

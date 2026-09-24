@@ -8,8 +8,11 @@ APK。文件中不包含 `assets/base.apk`。
 - 包名：`example.npatch.smoke`
 - 来源模块：`wrapper-smoke`
 - 构建类型：Debug
-- 文件大小：3,943,689 字节
-- SHA-256：`0e81aa751e2a947c78e9fc7196d25c828685b37b3d579625e831159f54601d22`
+- 文件大小：3,964,132 字节
+- SHA-256：`4a2dfbd7e7c501717d77766d511f9fb67d349d3ac0005101d6a72f35d3a3439b`
+- 包名自检：界面和 `WrapperSmoke` 日志会输出当前包名、写死的
+  `example.npatch.smoke` 以及独立的 `packageIdentity` 结果；该结果不影响总
+  `PASS`。
 
 CLI、管理器和真机回归测试应优先使用该文件，以保证不同电脑上的测试输入一致。
 
