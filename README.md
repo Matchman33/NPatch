@@ -18,6 +18,15 @@ NPatch 是一个无需 Root 的 LSPosed / LSPatch 风格框架，通过向目标
 
 ## 构建与使用
 
+本地构建要求：
+
+- Git 子模块必须完整检出，首次构建前执行 `git submodule update --init --recursive`。
+- 使用完整的 JDK 21；可通过 `./gradlew --version` 或 `.\gradlew.bat --version` 确认 `Daemon JVM` 为 21。
+- Android SDK 需要安装 Platform 37.0、Build Tools 37.0.0、NDK 29.0.13846066 和 CMake 3.31.6，并接受相应 SDK 许可证。
+- 推荐设置 `ANDROID_HOME`。如果改用 `local.properties`，根目录和 `core` 目录都必须配置 `sdk.dir`，因为 `core` 是独立的 Gradle included build。
+
+完整的环境配置与排错说明见 [封装管理器文档](WRAPPER.md#构建)。
+
 独立封装管理器的推荐构建命令：
 
 ```powershell

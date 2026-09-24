@@ -5,14 +5,18 @@ import com.beust.jcommander.Parameter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
 import top.nkbe.npatch.patch.wrapper.WrapperManifest;
+import top.nkbe.npatch.patch.wrapper.WrapperGadget;
 import top.nkbe.npatch.patch.wrapper.WrapperPacker;
 import top.nkbe.npatch.patch.wrapper.WrapperSigning;
 
 public final class WrapperCli {
+    private static final long MAX_GADGET_SIZE = 128L * 1024 * 1024;
+    private static final long MAX_SCRIPT_SIZE = 16L * 1024 * 1024;
     @Parameter(description = "input.apk", required = true) private List<String> input = new ArrayList<>();
     @Parameter(names = {"-o", "--output"}, required = true, description = "Output directory (input filename is preserved)") private String directory;
     @Parameter(names = {"-p", "--package"}, description = "Optional package override (default: preserve original)") private String target;
@@ -22,6 +26,12 @@ public final class WrapperCli {
     @Parameter(names = "--store-password-env", description = "Environment variable containing the store password") private String passwordEnv;
     @Parameter(names = "--key-password-env") private String keyPasswordEnv;
     @Parameter(names = "--signature-compat", description = "Enable NPatch signature compatibility") private boolean signatureCompat;
+    @Parameter(names = "--gadget", description = "Local Frida Gadget ELF file") private String gadget;
+    @Parameter(names = "--gadget-mode", description = "Frida Gadget mode: listen or script") private String gadgetMode = "listen";
+    @Parameter(names = "--gadget-address", description = "Listen address") private String gadgetAddress = "127.0.0.1";
+    @Parameter(names = "--gadget-port", description = "Listen port") private int gadgetPort = 27043;
+    @Parameter(names = "--gadget-resume", description = "Do not wait for a client when loading Listen mode") private boolean gadgetResume;
+    @Parameter(names = "--gadget-script", description = "UTF-8 JavaScript file for Script mode") private String gadgetScript;
     @Parameter(names = {"-h", "--help"}, help = true) private boolean help;
 
     public static void main(String[] args) {
@@ -62,9 +72,34 @@ public final class WrapperCli {
                 if (input == null) throw new IllegalStateException("NPatch runtime is missing from this JAR");
                 runtime = input.readAllBytes();
             }
+            WrapperGadget selectedGadget = gadget();
             WrapperPacker.pack(source, new File(directory, source.getName()), packageName,
-                    loader.readAllBytes(), signer, runtime, signatureCompat, System.out::println);
+                    loader.readAllBytes(), signer, runtime, signatureCompat, selectedGadget, System.out::println);
         }
+    }
+
+    private WrapperGadget gadget() throws Exception {
+        if (gadget == null) {
+            if (gadgetScript != null) throw new IllegalArgumentException("--gadget-script requires --gadget");
+            return null;
+        }
+        byte[] library = readFile(new File(gadget), MAX_GADGET_SIZE, "Frida Gadget");
+        if ("listen".equalsIgnoreCase(gadgetMode)) {
+            if (gadgetScript != null) throw new IllegalArgumentException("--gadget-script is only valid in script mode");
+            return WrapperGadget.listen(library, gadgetAddress, gadgetPort, !gadgetResume);
+        }
+        if ("script".equalsIgnoreCase(gadgetMode)) {
+            if (gadgetScript == null) throw new IllegalArgumentException("Script mode requires --gadget-script");
+            return WrapperGadget.script(library, readFile(new File(gadgetScript), MAX_SCRIPT_SIZE, "Gadget script"));
+        }
+        throw new IllegalArgumentException("--gadget-mode must be listen or script");
+    }
+
+    private byte[] readFile(File file, long maximumSize, String label) throws Exception {
+        if (!file.isFile()) throw new IllegalArgumentException(label + " file not found: " + file);
+        long size = Files.size(file.toPath());
+        if (size == 0 || size > maximumSize) throw new IllegalArgumentException(label + " file has an invalid size");
+        return Files.readAllBytes(file.toPath());
     }
 
     private char[] env(String name) {

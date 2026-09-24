@@ -7,17 +7,6 @@ listOf("Debug", "Release").forEach { variant ->
         from(rootProject.layout.projectDirectory.dir("out/assets/$name/npatch")) {
             include("loader.bin", "so/**/libnpatch.so")
         }
-        from(rootProject.layout.projectDirectory.dir("gadget/runtime")) {
-            include(
-                "arm64-v8a/libnpatch-gadget.so",
-                "arm64-v8a/libnpatch-gadget.config.so",
-                "arm64-v8a/libscript.so",
-                "x86_64/libnpatch-gadget.so",
-                "x86_64/libnpatch-gadget.config.so",
-                "x86_64/libscript.so",
-            )
-            into("gadget")
-        }
         archiveFileName.set("runtime.zip")
         destinationDirectory.set(rootProject.layout.projectDirectory.dir("out/assets/$name/wrapper"))
     }

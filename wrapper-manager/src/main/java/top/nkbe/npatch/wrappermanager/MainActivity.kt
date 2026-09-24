@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
@@ -46,7 +47,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Typography
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +73,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -114,6 +120,12 @@ private fun WrapperScreen(initialUri: Uri?, model: WrapperViewModel = viewModel(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) model.selectUri(uri)
     }
+    val gadgetPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) model.selectGadget(uri)
+    }
+    val scriptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) model.selectGadgetScript(uri)
+    }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.android.package-archive")) { uri ->
         if (uri != null) model.export(uri)
     }
@@ -155,6 +167,59 @@ private fun WrapperScreen(initialUri: Uri?, model: WrapperViewModel = viewModel(
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(stringResource(R.string.signature_compat), modifier = Modifier.weight(1f))
                     Switch(checked = state.signatureCompat, onCheckedChange = model::signatureCompat, enabled = !state.busy)
+                }
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(stringResource(R.string.enable_gadget), modifier = Modifier.weight(1f))
+                    Switch(checked = state.gadgetEnabled, onCheckedChange = model::gadgetEnabled, enabled = !state.busy)
+                }
+                if (state.gadgetEnabled) {
+                    OutlinedButton(onClick = { gadgetPicker.launch(arrayOf("application/octet-stream", "*/*")) },
+                        enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.FolderOpen, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text(stringResource(R.string.select_gadget))
+                    }
+                    Text(state.gadget?.let {
+                        stringResource(R.string.selected_gadget, it.displayName, it.detail ?: "")
+                    } ?: stringResource(R.string.no_gadget_selected),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(R.string.gadget_mode), style = MaterialTheme.typography.titleSmall)
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        GadgetMode.entries.forEachIndexed { index, mode ->
+                            SegmentedButton(selected = state.gadgetMode == mode, onClick = { model.gadgetMode(mode) },
+                                enabled = !state.busy, shape = SegmentedButtonDefaults.itemShape(index, GadgetMode.entries.size)) {
+                                Text(stringResource(if (mode == GadgetMode.LISTEN) R.string.gadget_listen else R.string.gadget_script))
+                            }
+                        }
+                    }
+                    if (state.gadgetMode == GadgetMode.LISTEN) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(value = state.gadgetAddress, onValueChange = model::gadgetAddress,
+                                label = { Text(stringResource(R.string.gadget_address)) }, enabled = !state.busy,
+                                singleLine = true, modifier = Modifier.weight(1f))
+                            OutlinedTextField(value = state.gadgetPort, onValueChange = model::gadgetPort,
+                                label = { Text(stringResource(R.string.gadget_port)) }, enabled = !state.busy,
+                                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(0.55f))
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(stringResource(R.string.gadget_wait), modifier = Modifier.weight(1f))
+                            Switch(checked = state.gadgetWaitForClient, onCheckedChange = model::gadgetWaitForClient,
+                                enabled = !state.busy)
+                        }
+                    } else {
+                        OutlinedButton(onClick = { scriptPicker.launch(arrayOf("text/*", "application/javascript", "*/*")) },
+                            enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Outlined.FolderOpen, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text(stringResource(R.string.select_gadget_script))
+                        }
+                        Text(state.gadgetScript?.displayName ?: stringResource(R.string.no_gadget_script_selected),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                 }
                 Button(onClick = model::generate, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Build, contentDescription = null, modifier = Modifier.padding(end = 8.dp))

@@ -51,6 +51,7 @@ public class SigBypass {
 
     private static String redirectApkPath;
     private static String visibleApkPath;
+    private static boolean exposeOriginalApkPath;
     private static int activeSigBypassLevel;
     private static boolean packageInfoConstructorHooked;
     private static boolean applicationInfoConstructorHooked;
@@ -109,8 +110,24 @@ public class SigBypass {
     }
 
     public static void setPaths(String originalApkPath, String patchedApkPath) {
+        setPaths(originalApkPath, patchedApkPath, false);
+    }
+
+    public static void setPaths(String originalApkPath, String patchedApkPath,
+                                boolean exposeOriginalToApplication) {
         redirectApkPath = originalApkPath;
         visibleApkPath = patchedApkPath;
+        exposeOriginalApkPath = exposeOriginalToApplication;
+    }
+
+    static String selectApplicationApkPath(String originalApkPath, String patchedApkPath,
+                                           boolean exposeOriginalToApplication) {
+        if (exposeOriginalToApplication && originalApkPath != null) return originalApkPath;
+        return patchedApkPath;
+    }
+
+    private static String applicationApkPath() {
+        return selectApplicationApkPath(redirectApkPath, visibleApkPath, exposeOriginalApkPath);
     }
 
     private static boolean is360ProtectedApk(String apkPath) {
@@ -242,16 +259,22 @@ public class SigBypass {
     }
 
     private static void replaceApplicationInfoPaths(Context context, ApplicationInfo applicationInfo) {
+        replaceApplicationInfoPaths(context, applicationInfo, applicationApkPath());
+    }
+
+    private static void replaceApplicationInfoPaths(Context context, ApplicationInfo applicationInfo,
+                                                    String exposedPath) {
         if (applicationInfo == null || visibleApkPath == null) return;
         if (!matchesTargetApplicationInfo(context, applicationInfo)) return;
 
-        applicationInfo.sourceDir = visibleApkPath;
-        applicationInfo.publicSourceDir = visibleApkPath;
-        setReflectivePathField(applicationInfo, "scanSourceDir", visibleApkPath);
-        setReflectivePathField(applicationInfo, "scanPublicSourceDir", visibleApkPath);
-        setReflectivePathField(applicationInfo, "baseCodePath", visibleApkPath);
-        setReflectivePathField(applicationInfo, "baseResourcePath", visibleApkPath);
-        replaceSplitPaths(applicationInfo, redirectApkPath, visibleApkPath);
+        applicationInfo.sourceDir = exposedPath;
+        applicationInfo.publicSourceDir = exposedPath;
+        setReflectivePathField(applicationInfo, "scanSourceDir", exposedPath);
+        setReflectivePathField(applicationInfo, "scanPublicSourceDir", exposedPath);
+        setReflectivePathField(applicationInfo, "baseCodePath", exposedPath);
+        setReflectivePathField(applicationInfo, "baseResourcePath", exposedPath);
+        replaceSplitPaths(applicationInfo, redirectApkPath, exposedPath);
+        replaceSplitPaths(applicationInfo, visibleApkPath, exposedPath);
     }
 
     private static void replaceModuleApplicationInfoPaths(Context context, ApplicationInfo applicationInfo) {
@@ -260,16 +283,23 @@ public class SigBypass {
         // payload 等资源。加固模块可能在 JNI_OnLoad 中取得 sourceDir/getPackageCodePath 后直接
         // 打开该路径；若返回 origin.apk，壳会因找不到资源而在模块初始化前失败。模块必须始终
         // 看到外层修补后的 base.apk；native I/O 侧必须与此保持一致，见 should_redirect_apk_contents。
-        replaceApplicationInfoPaths(context, applicationInfo);
+        replaceApplicationInfoPaths(context, applicationInfo, visibleApkPath);
     }
 
-    private static String mapToVisiblePath(String path) {
+    private static String mapToApplicationPath(String path, boolean moduleCaller) {
         if (path == null || visibleApkPath == null || redirectApkPath == null) return path;
-        if (path.equals(redirectApkPath)) return visibleApkPath;
-        if (path.equals(redirectApkPath + " (deleted)")) return visibleApkPath + " (deleted)";
-        String zipPrefix = redirectApkPath + "!/";
-        if (path.startsWith(zipPrefix)) {
-            return visibleApkPath + path.substring(redirectApkPath.length());
+        String exposedPath = moduleCaller ? visibleApkPath : applicationApkPath();
+        if (path.equals(redirectApkPath) || path.equals(visibleApkPath)) return exposedPath;
+        if (path.equals(redirectApkPath + " (deleted)") || path.equals(visibleApkPath + " (deleted)")) {
+            return exposedPath + " (deleted)";
+        }
+        String originalZipPrefix = redirectApkPath + "!/";
+        if (path.startsWith(originalZipPrefix)) {
+            return exposedPath + path.substring(redirectApkPath.length());
+        }
+        String patchedZipPrefix = visibleApkPath + "!/";
+        if (path.startsWith(patchedZipPrefix)) {
+            return exposedPath + path.substring(visibleApkPath.length());
         }
         return path;
     }
@@ -287,7 +317,9 @@ public class SigBypass {
 
     private static boolean shouldSpoofPath(Object receiver, Context context, Object result) {
         if (!(result instanceof String path) || visibleApkPath == null) return false;
-        if (path.equals(visibleApkPath)) return false;
+        String exposedPath = applicationApkPath();
+        if (path.equals(exposedPath)) return false;
+        if (path.equals(visibleApkPath)) return true;
         if (redirectApkPath != null && path.equals(redirectApkPath)) return true;
 
         if (receiver instanceof Context receiverContext) {
@@ -309,7 +341,7 @@ public class SigBypass {
             protected void afterHookedMethod(MethodHookParam param) {
                 Object result = param.getResult();
                 if (!(result instanceof String path)) return;
-                String mappedPath = mapToVisiblePath(path);
+                String mappedPath = mapToApplicationPath(path, isModuleCaller());
                 if (!path.equals(mappedPath)) {
                     param.setResult(mappedPath);
                 }
@@ -321,7 +353,7 @@ public class SigBypass {
                 Object result = param.getResult();
                 if (!(result instanceof File file)) return;
                 String filePath = file.getPath();
-                String mappedPath = mapToVisiblePath(filePath);
+                String mappedPath = mapToApplicationPath(filePath, isModuleCaller());
                 if (!filePath.equals(mappedPath)) {
                     param.setResult(new File(mappedPath));
                 }
@@ -414,7 +446,7 @@ public class SigBypass {
     public static ApplicationInfo createModuleCompatibleApplicationInfo(ApplicationInfo applicationInfo) {
         if (applicationInfo == null) return null;
         ApplicationInfo copy = new ApplicationInfo(applicationInfo);
-        replaceApplicationInfoPaths(null, copy);
+        replaceModuleApplicationInfoPaths(null, copy);
         return copy;
     }
 
@@ -668,7 +700,7 @@ public class SigBypass {
                     return;
                 }
                 if (shouldSpoofPath(param.thisObject, context, param.getResult())) {
-                    param.setResult(visibleApkPath);
+                    param.setResult(applicationApkPath());
                 }
             }
         };

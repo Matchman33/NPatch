@@ -4,12 +4,15 @@ import com.google.gson.JsonObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.Test;
 import top.nkbe.npatch.share.WrapperConfig;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertThrows;
 
 public class WrapperRuntimeTest {
@@ -52,6 +55,22 @@ public class WrapperRuntimeTest {
     @Test public void rejectsMalformedGadgetConfig() throws Exception {
         assertThrows(IOException.class, () -> WrapperRuntime.read(gadgetArchive(
                 "{\"interaction\":\"listen\"}", false)));
+    }
+
+    @Test public void replacesBuildTimeGadgetWithPerPackageSelection() throws Exception {
+        byte[] archive = gadgetArchive(false, false);
+        Map<String, byte[]> disabled = WrapperRuntime.read(archive, null);
+        assertEquals(3, disabled.size());
+        assertFalse(disabled.keySet().stream().anyMatch(name -> name.startsWith(WrapperConfig.GADGET_PREFIX)));
+
+        WrapperGadget selected = WrapperGadget.script(elf("x86_64", false),
+                "console.log('selected');".getBytes(StandardCharsets.UTF_8));
+        Map<String, byte[]> enabled = WrapperRuntime.read(archive, selected);
+        assertEquals(6, enabled.size());
+        assertTrue(enabled.containsKey("gadget/x86_64/" + WrapperConfig.GADGET_LIBRARY));
+        assertTrue(enabled.containsKey("gadget/x86_64/" + WrapperConfig.GADGET_CONFIG));
+        assertTrue(enabled.containsKey("gadget/x86_64/" + WrapperConfig.GADGET_SCRIPT));
+        assertFalse(enabled.keySet().stream().anyMatch(name -> name.startsWith("gadget/arm64-v8a/")));
     }
 
     private byte[] baseArchive(boolean wrongMachine) throws Exception {

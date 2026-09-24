@@ -22,5 +22,8 @@ public final class WrapperConfig {
     public String apkSha256;
     public boolean signatureCompat;
     public String hookRuntime;
+    public boolean gadgetEnabled;
+    public String gadgetAbi;
+    public String gadgetMode;
     public java.util.Map<String, String> runtimeSha256;
 }

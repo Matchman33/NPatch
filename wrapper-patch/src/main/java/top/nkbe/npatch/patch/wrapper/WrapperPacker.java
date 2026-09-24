@@ -49,6 +49,12 @@ public final class WrapperPacker {
 
     public static void pack(File input, File output, String targetPackage, byte[] loaderDex,
                             KeyStore.PrivateKeyEntry signer, byte[] runtimeZip, boolean signatureCompat, Consumer<String> log) throws Exception {
+        pack(input, output, targetPackage, loaderDex, signer, runtimeZip, signatureCompat, null, log);
+    }
+
+    public static void pack(File input, File output, String targetPackage, byte[] loaderDex,
+                            KeyStore.PrivateKeyEntry signer, byte[] runtimeZip, boolean signatureCompat,
+                            WrapperGadget gadget, Consumer<String> log) throws Exception {
         if (input.getCanonicalFile().equals(output.getCanonicalFile())) throw new IOException("Output must not overwrite the input APK");
         if (!input.isFile()) throw new IOException("Input APK not found");
         if (output.exists()) throw new IOException("Output already exists: " + output.getName());
@@ -61,7 +67,7 @@ public final class WrapperPacker {
         config.originalPackage = manifest.packageName;
         config.wrapperPackage = targetPackage;
         config.appComponentFactory = manifest.appComponentFactory;
-        java.util.Map<String, byte[]> runtime = WrapperRuntime.read(runtimeZip);
+        java.util.Map<String, byte[]> runtime = WrapperRuntime.read(runtimeZip, gadget);
         String originalSignature = null;
         if (signatureCompat) {
             log.accept("Validating original signature for compatibility mode");
@@ -75,6 +81,9 @@ public final class WrapperPacker {
         }
         config.signatureCompat = signatureCompat;
         config.hookRuntime = WrapperConfig.HOOK_RUNTIME;
+        config.gadgetEnabled = gadget != null;
+        config.gadgetAbi = gadget == null ? null : gadget.abi();
+        config.gadgetMode = gadget == null ? null : gadget.mode();
         config.runtimeSha256 = new java.util.TreeMap<>();
         for (var entry : runtime.entrySet()) {
             config.runtimeSha256.put(entry.getKey(), sha256(new ByteArrayInputStream(entry.getValue())));
@@ -87,6 +96,7 @@ public final class WrapperPacker {
                 originalSignature, manifest.appComponentFactory, false, true, targetPackage, false, false);
         npatch.standalone = true;
         npatch.embeddedApkSha256 = config.apkSha256;
+        npatch.originalPackage = manifest.packageName;
         byte[] npatchBytes = new Gson().toJson(npatch).getBytes(StandardCharsets.UTF_8);
         byte[] rewritten = manifest.rewrite(targetPackage, java.util.Base64.getEncoder().encodeToString(npatchBytes));
         byte[] configBytes = new Gson().toJson(config).getBytes(StandardCharsets.UTF_8);

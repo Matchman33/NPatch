@@ -23,6 +23,20 @@ final class WrapperRuntime {
     private WrapperRuntime() {}
 
     static Map<String, byte[]> read(byte[] archive) throws IOException {
+        Map<String, byte[]> result = readArchive(archive);
+        validateGadgets(result);
+        return result;
+    }
+
+    static Map<String, byte[]> read(byte[] archive, WrapperGadget gadget) throws IOException {
+        Map<String, byte[]> result = readArchive(archive);
+        result.keySet().removeIf(name -> name.startsWith(WrapperConfig.GADGET_PREFIX));
+        if (gadget != null) result.putAll(gadget.entries());
+        validateGadgets(result);
+        return result;
+    }
+
+    private static Map<String, byte[]> readArchive(byte[] archive) throws IOException {
         Map<String, byte[]> result = new TreeMap<>();
         if (archive == null || archive.length == 0 || archive.length > MAX_ARCHIVE_SIZE) {
             throw new IOException("Missing or oversized NPatch runtime");
@@ -53,8 +67,11 @@ final class WrapperRuntime {
                 || !result.containsKey("so/x86_64/libnpatch.so")) {
             throw new IOException("NPatch requires loader.bin, arm64-v8a and x86_64 libraries");
         }
-        for (String abi : SUPPORTED_ABIS) validateGadgetBundle(result, abi);
         return result;
+    }
+
+    private static void validateGadgets(Map<String, byte[]> runtime) throws IOException {
+        for (String abi : SUPPORTED_ABIS) validateGadgetBundle(runtime, abi);
     }
 
     private static int entryLimit(String name) {

@@ -75,6 +75,7 @@ public class WrapperPackerTest {
             assertTrue(runtimeConfig.get("standalone").getAsBoolean());
             assertFalse(runtimeConfig.get("useManager").getAsBoolean());
             assertEquals(0, runtimeConfig.get("sigBypassLevel").getAsInt());
+            assertEquals("example.original", runtimeConfig.get("originalPackage").getAsString());
         }
     }
 
@@ -206,6 +207,28 @@ public class WrapperPackerTest {
         assertFalse(output.exists());
     }
 
+    @Test public void embedsPerPackageGadgetAndRecordsGeneratedConfiguration() throws Exception {
+        File input = input("Gadget.apk", false);
+        File output = new File(temporary.getRoot(), "Gadget-wrapped.apk");
+        byte[] script = "console.log('wrapper gadget');".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        WrapperGadget gadget = WrapperGadget.script(gadgetElf("arm64-v8a"), script);
+        WrapperPacker.pack(input, output, "example.original", loader(), testSigner(), runtime(),
+                false, gadget, ignored -> {});
+
+        try (ZipFile zip = new ZipFile(output)) {
+            String prefix = WrapperConfig.RUNTIME_PREFIX + WrapperConfig.GADGET_PREFIX + "arm64-v8a/";
+            assertNotNull(zip.getEntry(prefix + WrapperConfig.GADGET_LIBRARY));
+            assertNotNull(zip.getEntry(prefix + WrapperConfig.GADGET_CONFIG));
+            assertArrayEquals(script, zip.getInputStream(zip.getEntry(prefix + WrapperConfig.GADGET_SCRIPT)).readAllBytes());
+            var config = com.google.gson.JsonParser.parseString(new String(
+                    zip.getInputStream(zip.getEntry(WrapperConfig.CONFIG_PATH)).readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+            assertTrue(config.get("gadgetEnabled").getAsBoolean());
+            assertEquals("arm64-v8a", config.get("gadgetAbi").getAsString());
+            assertEquals("script", config.get("gadgetMode").getAsString());
+        }
+    }
+
     private java.security.KeyStore.PrivateKeyEntry testSigner() throws Exception {
         try (var key = new FileInputStream(new File(System.getProperty("repoRoot"), "jar/src/main/assets/npatch.key"))) {
             return WrapperSigning.builtin(key);
@@ -218,6 +241,20 @@ public class WrapperPackerTest {
 
     private byte[] loader() throws IOException {
         return Files.readAllBytes(new File(System.getProperty("repoRoot"), "out/assets/release/wrapper/loader.dex").toPath());
+    }
+
+    private byte[] gadgetElf(String abi) {
+        byte[] elf = new byte[20];
+        elf[0] = 0x7f;
+        elf[1] = 'E';
+        elf[2] = 'L';
+        elf[3] = 'F';
+        elf[4] = 2;
+        elf[5] = 1;
+        int machine = abi.equals("arm64-v8a") ? 183 : 62;
+        elf[18] = (byte) machine;
+        elf[19] = (byte) (machine >>> 8);
+        return elf;
     }
 
     private File input(String filename, boolean reserved) throws Exception {

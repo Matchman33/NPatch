@@ -423,7 +423,10 @@ public class LSPApplication {
             if (config.standalone || config.lspConfig.sigBypassLevel >= Constants.SIGBYPASS_BASIC) {
                 Path cacheApkPath = OriginApkHelper.prepareOriginApk(appInfo, baseClassLoader, config.embeddedApkSha256);
                 Path nativeLibraryDir = OriginApkHelper.prepareNativeLibraryDir(appInfo, cacheApkPath, patchedApkPath);
-                SigBypass.setPaths(cacheApkPath.toString(), patchedApkPath);
+                boolean exposeOriginalApkPath = config.standalone
+                        && config.originalPackage != null
+                        && config.originalPackage.equals(config.newPackage);
+                SigBypass.setPaths(cacheApkPath.toString(), patchedApkPath, exposeOriginalApkPath);
                 SigBypass.setOriginalSignature(config.newPackage, config.originalSignature);
                 loadedApkSourceDir = cacheApkPath.toString();
                 loadedApkUsesOriginCache = true;

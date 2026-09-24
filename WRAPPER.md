@@ -6,15 +6,58 @@
 
 ## 构建
 
-需要 Java 21、SDK/Build Tools 37、NDK 29.0.13846066 和 CMake 3.31.6。简化管理器也会构建原 NPatch 原生运行时，已不再是免 NDK 的构建路径。
+简化管理器也会构建原 NPatch 原生运行时，已不再是免 NDK 的构建路径。本地构建需要：
+
+- 完整的 JDK 21，不能只安装 JRE。Gradle 的 `Daemon JVM` 必须是 21，JDK 17 会产生“无效的源发行版：21”错误。
+- Android SDK Platform 37.0（包名 `platforms;android-37.0`）。
+- Android SDK Build Tools 37.0.0。
+- Android NDK 29.0.13846066。
+- CMake 3.31.6。
+- Git 及完整的递归子模块。
+
+首次获取源码时使用递归克隆，或在已有工作区补齐全部子模块：
 
 ```powershell
-git submodule update --init core
-git -C core submodule update --init --recursive external/axml/manifest-editor external/apache/commons-lang external/dobby external/fmt external/lsplant external/xz-embedded
+git clone --recursive <repository-url>
+# 已经克隆仓库时执行：
+git submodule update --init --recursive
+```
+
+推荐先设置 `JAVA_HOME` 和 `ANDROID_HOME`，以便根构建和 `core` included build 使用相同环境：
+
+```powershell
+$env:JAVA_HOME = "<JDK 21 安装目录>"
+$env:ANDROID_HOME = "<Android SDK 目录>"
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:Path"
+
+.\gradlew.bat --version
+```
+
+`gradlew --version` 输出中的 `Daemon JVM` 应为 21。然后通过 Android Studio SDK Manager 安装上述组件，或使用命令行工具：
+
+```powershell
+& "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" --licenses
+& "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" `
+  "platforms;android-37.0" `
+  "build-tools;37.0.0" `
+  "ndk;29.0.13846066" `
+  "cmake;3.31.6"
+```
+
+如果不设置 `ANDROID_HOME`，则必须同时创建根目录的 `local.properties` 和 `core/local.properties`。两个文件内容相同，例如：
+
+```properties
+sdk.dir=D:/Sdk
+```
+
+只配置根目录的 `local.properties` 不够，因为 `core` 通过 `includeBuild("core")` 作为独立 Gradle 构建运行。完成环境配置后执行：
+
+```powershell
 .\gradlew.bat -PstandaloneWrapper=true :wrapper-manager:assembleRelease :wrapper-cli:fatJar :wrapper-patch:test :patch-loader:testDebugUnitTest
 ```
 
-设置 `JAVA_HOME` 和 `ANDROID_HOME`。libxposed 源码子模块不可用时，core 的两个 Gradle 项目回退到官方 Maven Central 的 API/service/interface 102.0.0；这些是原框架的 API 依赖，不是其他 Hook 引擎。
+libxposed 源码子模块不可用时，core 的两个 Gradle 项目回退到官方 Maven Central 的 API/service/interface 102.0.0；这些是原框架的 API 依赖，不是其他 Hook 引擎。
 
 - 管理器：`wrapper-manager/build/outputs/apk/release/wrapper-manager-release.apk`
 - CLI：`out/wrapper/apk-wrapper.jar`
@@ -40,6 +83,7 @@ java -jar out/wrapper/apk-wrapper.jar example.apk -o output-signature --signatur
 - `assets/npatch/config.json` 使用原 PatchConfig，并记录独立封装模式及原包摘要；Manifest 的 npatch 元数据保持原框架格式。
 - 独立封装模式强制准备原包缓存，重新建立 LoadedApk，让代码和资源配套。保留原框架组件工厂回退和原生库准备逻辑。
 - 原包缓存使用锁、摘要检查、只读文件和原子发布，继续识别旧 NPatch 的 `assets/npatch/origin.apk` 布局。
+- 保持原包名的独立封装中，宿主应用通过 `ApplicationInfo.sourceDir`、`getPackageCodePath()` 和 Java `File` 路径接口看到校验后的原包缓存；NPatch 模块调用方仍看到包含注入资产的外层 APK。该规则不按 Android 版本分支。
 - 独立封装模式关闭管理器依赖、模块发现和模块加载，但保留 Vector/LSPosed 框架初始化。
 - 原签名兼容开关默认关闭；开启时使用原 NPatch 的 SIGBYPASS_EXTREME（等级 3），不再使用 Pine 查询替换。
 - 不修改 `assets/base.apk` 字节；可选 Frida Gadget 只作为外层运行时资产显式加载，不会写入内层原包。该能力不保证通过目标应用或服务端的所有完整性校验。
@@ -48,11 +92,11 @@ java -jar out/wrapper/apk-wrapper.jar example.apk -o output-signature --signatur
 
 ## Frida Gadget
 
-Gadget 为可选构建资产，默认仓库不包含其二进制。详细目录、Listen/Script 配置和脚本示例见 [Gadget 运行时说明](gadget/README.md)。将对应 ABI 的官方 Gadget 重命名为 `libnpatch-gadget.so` 后放入 `gadget/runtime/<abi>/`，重新构建管理器或 CLI 即可。
+Gadget 改为每次生成 APK 时选择，不再作为管理器的构建时资产。选择目标 APK 后开启“启用 Frida Gadget”，再选择本地官方 Gadget `.so`；管理器会自动识别 ARM64 或 x86_64。详细流程见 [Gadget 运行时说明](gadget/README.md)。
 
-运行时只在应用主进程提取并显式执行 `System.load()`。Gadget、配置和脚本会放进同一个应用私有目录。当前只接受 `listen` 和 `script` 两种交互模式；Script 模式的脚本文件固定命名为 `libscript.so`，内容仍是 UTF-8 JavaScript，不是 ELF 文件。配置中的 `interaction.path` 必须使用这个同目录相对文件名。
+管理器提供 Listen/Script 模式选择。Listen 模式可设置地址、端口和启动时是否等待客户端；Script 模式选择任意本地 UTF-8 JavaScript 文件。封装后内部名称固定为 `libnpatch-gadget.so`、`libnpatch-gadget.config.so` 和 `libscript.so`，配置文件由管理器生成。
 
-Listen 示例默认监听 `127.0.0.1:27043` 并在加载时等待连接。Script 示例随进程启动执行，不等待外部客户端。只放置 Gadget 而缺少配置、Script 模式缺少脚本、ABI 与 ELF 不匹配或使用其他交互模式时，封装阶段会拒绝该运行时归档。
+关闭开关时，本次生成物不会包含 Gadget。开启后，运行时只在应用主进程提取并显式执行 `System.load()`；Script 模式缺少脚本、文件不是支持的 64 位 ELF、端口无效或脚本不是 UTF-8 时会拒绝生成。
 
 ## 验证边界
 
@@ -63,3 +107,7 @@ Listen 示例默认监听 `127.0.0.1:27043` 并在加载时等待连接。Script
 本轮结果见 [NPatch 原体系本地验证](docs/testing/2026-09-23-npatch-runtime-local.md)。
 
 Gadget 结果见 [Frida Gadget 本地与真机验证](docs/testing/2026-09-23-frida-gadget-device.md)。
+
+管理器按次选择与配置结果见 [Frida Gadget 管理器按次配置验证](docs/testing/2026-09-24-gadget-manager-options.md)。
+
+同包名原包路径结果见 [Android 15 同包名原包路径回归](docs/testing/2026-09-24-android15-original-apk-path.md)。

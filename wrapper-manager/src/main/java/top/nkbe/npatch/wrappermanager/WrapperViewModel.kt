@@ -26,17 +26,27 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.nkbe.npatch.patch.wrapper.WrapperManifest
+import top.nkbe.npatch.patch.wrapper.WrapperGadget
 import top.nkbe.npatch.patch.wrapper.WrapperPacker
 import top.nkbe.npatch.patch.wrapper.WrapperSigning
 import top.nkbe.npatch.share.WrapperConfig
 
 data class SelectedApk(val file: File, val packageName: String, val label: String, val icon: Bitmap, val sourceUri: Uri?)
 data class InstalledApp(val packageName: String, val label: String)
+data class SelectedAsset(val file: File, val displayName: String, val detail: String? = null)
+enum class GadgetMode { LISTEN, SCRIPT }
 data class WrapperState(
     val selected: SelectedApk? = null,
     val packageName: String = "",
     val filename: String = "",
     val signatureCompat: Boolean = false,
+    val gadgetEnabled: Boolean = false,
+    val gadget: SelectedAsset? = null,
+    val gadgetMode: GadgetMode = GadgetMode.LISTEN,
+    val gadgetAddress: String = "127.0.0.1",
+    val gadgetPort: String = "27043",
+    val gadgetWaitForClient: Boolean = true,
+    val gadgetScript: SelectedAsset? = null,
     val busy: Boolean = false,
     val appsLoading: Boolean = false,
     val apps: List<InstalledApp> = emptyList(),
@@ -59,6 +69,11 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
     }
     fun filename(value: String) { if (!mutable.value.busy) mutable.update { it.copy(filename = value, output = null, error = null, notice = null) } }
     fun signatureCompat(value: Boolean) { if (!mutable.value.busy) mutable.update { it.copy(signatureCompat = value, output = null, error = null, notice = null) } }
+    fun gadgetEnabled(value: Boolean) { if (!mutable.value.busy) mutable.update { it.copy(gadgetEnabled = value, output = null, error = null, notice = null) } }
+    fun gadgetMode(value: GadgetMode) { if (!mutable.value.busy) mutable.update { it.copy(gadgetMode = value, output = null, error = null, notice = null) } }
+    fun gadgetAddress(value: String) { if (!mutable.value.busy) mutable.update { it.copy(gadgetAddress = value, output = null, error = null, notice = null) } }
+    fun gadgetPort(value: String) { if (!mutable.value.busy && value.all(Char::isDigit)) mutable.update { it.copy(gadgetPort = value, output = null, error = null, notice = null) } }
+    fun gadgetWaitForClient(value: Boolean) { if (!mutable.value.busy) mutable.update { it.copy(gadgetWaitForClient = value, output = null, error = null, notice = null) } }
     fun error(error: Throwable) { mutable.update { it.copy(error = error.message ?: error.javaClass.simpleName) } }
     fun notice(message: String) { mutable.update { it.copy(notice = message) } }
 
@@ -83,15 +98,43 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun selectUri(uri: Uri) = work {
-        val filename = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
-        } ?: "application.apk"
+        val filename = displayName(uri, "application.apk")
         val input = inputFile()
         try {
             app.contentResolver.openInputStream(uri)?.use { source -> input.outputStream().use { source.copyTo(it) } }
                 ?: throw IOException(app.getString(R.string.input_unreadable))
             select(input, safeFilename(filename), uri)
         } catch (e: Exception) { input.delete(); throw e }
+    }
+
+    fun selectGadget(uri: Uri) = work {
+        val file = optionFile("gadget", "libnpatch-gadget.so")
+        try {
+            copyUri(uri, file, MAX_GADGET_SIZE)
+            val header = file.inputStream().use { it.readNBytes(20) }
+            val abi = WrapperGadget.detectAbi(header)
+            val selected = SelectedAsset(file, displayName(uri, "libnpatch-gadget.so"), abi)
+            val previous = mutable.value.gadget
+            mutable.update { it.copy(gadget = selected, output = null, error = null, notice = null) }
+            previous?.file?.parentFile?.deleteRecursively()
+        } catch (error: Exception) {
+            file.parentFile?.deleteRecursively()
+            throw error
+        }
+    }
+
+    fun selectGadgetScript(uri: Uri) = work {
+        val file = optionFile("script", "libscript.so")
+        try {
+            copyUri(uri, file, MAX_SCRIPT_SIZE)
+            val selected = SelectedAsset(file, displayName(uri, "libscript.so"))
+            val previous = mutable.value.gadgetScript
+            mutable.update { it.copy(gadgetScript = selected, output = null, error = null, notice = null) }
+            previous?.file?.parentFile?.deleteRecursively()
+        } catch (error: Exception) {
+            file.parentFile?.deleteRecursively()
+            throw error
+        }
     }
 
     fun selectInstalled(packageName: String) = work {
@@ -138,6 +181,21 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
             throw IOException(app.getString(R.string.invalid_filename))
         }
         val signer = signer()
+        val gadget = if (current.gadgetEnabled) {
+            val selected = current.gadget ?: throw IOException(app.getString(R.string.gadget_required))
+            val library = selected.file.readBytes()
+            when (current.gadgetMode) {
+                GadgetMode.LISTEN -> {
+                    val port = current.gadgetPort.toIntOrNull()
+                        ?: throw IOException(app.getString(R.string.gadget_port_invalid))
+                    WrapperGadget.listen(library, current.gadgetAddress, port, current.gadgetWaitForClient)
+                }
+                GadgetMode.SCRIPT -> {
+                    val script = current.gadgetScript ?: throw IOException(app.getString(R.string.gadget_script_required))
+                    WrapperGadget.script(library, script.file.readBytes())
+                }
+            }
+        } else null
         val installNotice = try {
             checkInstalledTarget(current.packageName, selected.packageName, signer)
             null
@@ -148,7 +206,8 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         val output = File(selected.file.parentFile!!.parentFile, "output-${UUID.randomUUID()}/${current.filename}")
         val loader = app.assets.open("wrapper/loader.dex").use { it.readBytes() }
         val runtime = app.assets.open("wrapper/runtime.zip").use { it.readBytes() }
-        WrapperPacker.pack(selected.file, output, current.packageName, loader, signer, runtime, current.signatureCompat) { log ->
+        WrapperPacker.pack(selected.file, output, current.packageName, loader, signer, runtime,
+            current.signatureCompat, gadget) { log ->
             mutable.update { it.copy(logs = (it.logs + log).takeLast(200)) }
         }
         mutable.update { it.copy(output = output, notice = installNotice ?:
@@ -170,6 +229,33 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun signer() = app.assets.open("npatch.key").use { WrapperSigning.builtin(it) }
+
+    private fun displayName(uri: Uri, fallback: String): String =
+        app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: fallback
+
+    private fun optionFile(category: String, filename: String): File =
+        File(app.filesDir, "wrapper/options/$category-${UUID.randomUUID()}/$filename").also {
+            check(it.parentFile!!.mkdirs()) { "Cannot create option snapshot" }
+        }
+
+    private fun copyUri(uri: Uri, destination: File, maximumSize: Long) {
+        app.contentResolver.openInputStream(uri)?.use { source ->
+            destination.outputStream().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var total = 0L
+                while (true) {
+                    val count = source.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > maximumSize) throw IOException(app.getString(R.string.gadget_file_too_large))
+                    output.write(buffer, 0, count)
+                }
+                if (total == 0L) throw IOException(app.getString(R.string.gadget_file_empty))
+            }
+        } ?: throw IOException(app.getString(R.string.input_unreadable))
+    }
 
     private fun checkInstalledTarget(target: String, original: String, signer: KeyStore.PrivateKeyEntry) {
         val installed = try {
@@ -293,6 +379,8 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        private const val MAX_GADGET_SIZE = 128L * 1024 * 1024
+        private const val MAX_SCRIPT_SIZE = 16L * 1024 * 1024
 
         fun safeFilename(value: String): String {
             val clean = value.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim().trimEnd('.')

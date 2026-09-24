@@ -4,22 +4,22 @@
 
 在不修改 `assets/base.apk` 的前提下，让外层 NPatch 引导过程可选加载 Frida Gadget。支持 Listen 和 Script 两种交互模式；Script 文件允许使用 `.so` 后缀，并与 Gadget、配置文件位于同一运行时目录。
 
-## 资产约定
+## 交互输入与资产约定
 
-构建输入位于忽略提交的 `gadget/runtime/<abi>/`。内部统一使用三个固定名称：
+2026-09-24 起，Gadget 从构建时目录改为每次封装时选择。管理器提供启用开关、本地 Gadget 文件选择、Listen/Script 模式和对应配置；CLI 接受等价的本地文件参数。内部仍统一使用三个固定名称：
 
 - `libnpatch-gadget.so`：对应 ABI 的 Gadget ELF。
 - `libnpatch-gadget.config.so`：Gadget JSON 配置。
 - `libscript.so`：Script 模式的 UTF-8 JavaScript。
 
-固定内部名称避免动态路径进入早期引导代码。用户可以把不同版本的官方 Gadget 重命名为该名称。ARM64 与 x86_64 可分别启用；某个 ABI 一旦出现 Gadget 资产，就必须具备完整的模式依赖。
+固定内部名称避免动态路径进入早期引导代码，也避免用户源文件名影响 Frida 的相邻配置发现。用户选择的源文件不需要预先重命名；封装器根据 ELF 头自动识别 ARM64 或 x86_64，并在目标 APK 内重命名。
 
 ## 构建与校验
 
-`wrapper-loader` 将可选资产写入 `runtime.zip` 的 `gadget/<abi>/`。`WrapperRuntime` 只接受白名单路径，校验 ELF 架构、文本编码和文件大小，并解析配置：
+`wrapper-loader` 只生成基础 NPatch 运行时，不再收集 Gadget。`WrapperGadget` 根据管理器或 CLI 输入生成配置，`WrapperRuntime` 在每次封装时明确移除旧 Gadget 条目，再加入本次选择并执行白名单、ELF 架构、文本编码和文件大小校验：
 
-- `listen` 要求 Gadget 和配置。
-- `script` 额外要求同目录脚本，且 `interaction.path` 必须严格为 `libscript.so`。
+- `listen` 由界面设置地址、端口和 `wait`/`resume`，端口冲突策略固定为 `fail`。
+- `script` 额外要求用户选择本地 UTF-8 脚本，封装后 `interaction.path` 固定为 `libscript.so`。
 - 其他交互模式、越目录路径、缺失文件或 ABI 不匹配在封装阶段拒绝。
 
 脚本虽然以 `.so` 结尾，但按 UTF-8 文本校验，不执行 ELF 校验。
@@ -33,7 +33,7 @@ MetaLoader 在解析当前进程 ABI 后、加载 `libnpatch.so` 前检查 Gadge
 3. 通过 Gadget 的绝对路径调用 `System.load()`。
 4. Gadget 完成 Listen 等待或 Script 执行后，继续原 NPatch 引导链。
 
-Gadget 未配置时不改变现有引导行为。加载失败纳入 MetaLoader 的阶段诊断，不静默降级，避免用户误以为注入已经生效。
+Gadget 开关关闭时，本次生成物不包含 Gadget，即使输入运行时来自旧版构建资产。加载失败纳入 MetaLoader 的阶段诊断，不静默降级，避免用户误以为注入已经生效。
 
 ## 边界
 
