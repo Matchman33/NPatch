@@ -17,7 +17,6 @@ import androidx.lifecycle.viewModelScope
 import java.io.File
 import java.io.IOException
 import java.security.KeyStore
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,21 +58,25 @@ data class WrapperState(
 class WrapperViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val mutable = MutableStateFlow(WrapperState())
+    private val workspace = WrapperWorkspace(app.cacheDir, File(app.filesDir, "wrapper"))
+    private val cleanupJob = viewModelScope.launch(Dispatchers.IO) { runCatching(workspace::cleanupStale) }
     val state = mutable.asStateFlow()
 
     fun packageName(value: String) {
-        if (!mutable.value.busy) mutable.update {
+        invalidateOutput {
             it.copy(packageName = value, output = null, error = null,
                 notice = if (it.selected != null && value != it.selected.packageName) app.getString(R.string.renamed_package_warning) else null)
         }
     }
-    fun filename(value: String) { if (!mutable.value.busy) mutable.update { it.copy(filename = value, output = null, error = null, notice = null) } }
-    fun signatureCompat(value: Boolean) { if (!mutable.value.busy) mutable.update { it.copy(signatureCompat = value, output = null, error = null, notice = null) } }
-    fun gadgetEnabled(value: Boolean) { if (!mutable.value.busy) mutable.update { it.copy(gadgetEnabled = value, output = null, error = null, notice = null) } }
-    fun gadgetMode(value: GadgetMode) { if (!mutable.value.busy) mutable.update { it.copy(gadgetMode = value, output = null, error = null, notice = null) } }
-    fun gadgetAddress(value: String) { if (!mutable.value.busy) mutable.update { it.copy(gadgetAddress = value, output = null, error = null, notice = null) } }
-    fun gadgetPort(value: String) { if (!mutable.value.busy && value.all(Char::isDigit)) mutable.update { it.copy(gadgetPort = value, output = null, error = null, notice = null) } }
-    fun gadgetWaitForClient(value: Boolean) { if (!mutable.value.busy) mutable.update { it.copy(gadgetWaitForClient = value, output = null, error = null, notice = null) } }
+    fun filename(value: String) = invalidateOutput { it.copy(filename = value, error = null, notice = null) }
+    fun signatureCompat(value: Boolean) = invalidateOutput { it.copy(signatureCompat = value, error = null, notice = null) }
+    fun gadgetEnabled(value: Boolean) = invalidateOutput { it.copy(gadgetEnabled = value, error = null, notice = null) }
+    fun gadgetMode(value: GadgetMode) = invalidateOutput { it.copy(gadgetMode = value, error = null, notice = null) }
+    fun gadgetAddress(value: String) = invalidateOutput { it.copy(gadgetAddress = value, error = null, notice = null) }
+    fun gadgetPort(value: String) {
+        if (value.all(Char::isDigit)) invalidateOutput { it.copy(gadgetPort = value, error = null, notice = null) }
+    }
+    fun gadgetWaitForClient(value: Boolean) = invalidateOutput { it.copy(gadgetWaitForClient = value, error = null, notice = null) }
     fun error(error: Throwable) { mutable.update { it.copy(error = error.message ?: error.javaClass.simpleName) } }
     fun notice(message: String) { mutable.update { it.copy(notice = message) } }
 
@@ -104,7 +107,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
             app.contentResolver.openInputStream(uri)?.use { source -> input.outputStream().use { source.copyTo(it) } }
                 ?: throw IOException(app.getString(R.string.input_unreadable))
             select(input, safeFilename(filename), uri)
-        } catch (e: Exception) { input.delete(); throw e }
+        } catch (e: Exception) { workspace.deleteSelection(input); throw e }
     }
 
     fun selectGadget(uri: Uri) = work {
@@ -115,8 +118,10 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
             val abi = WrapperGadget.detectAbi(header)
             val selected = SelectedAsset(file, displayName(uri, "libnpatch-gadget.so"), abi)
             val previous = mutable.value.gadget
+            val previousOutput = mutable.value.output
             mutable.update { it.copy(gadget = selected, output = null, error = null, notice = null) }
             previous?.file?.parentFile?.deleteRecursively()
+            workspace.deleteOutput(previousOutput)
         } catch (error: Exception) {
             file.parentFile?.deleteRecursively()
             throw error
@@ -129,8 +134,10 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
             copyUri(uri, file, MAX_SCRIPT_SIZE)
             val selected = SelectedAsset(file, displayName(uri, "libscript.so"))
             val previous = mutable.value.gadgetScript
+            val previousOutput = mutable.value.output
             mutable.update { it.copy(gadgetScript = selected, output = null, error = null, notice = null) }
             previous?.file?.parentFile?.deleteRecursively()
+            workspace.deleteOutput(previousOutput)
         } catch (error: Exception) {
             file.parentFile?.deleteRecursively()
             throw error
@@ -148,12 +155,10 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
                 throw IOException(app.getString(R.string.source_updated))
             }
             select(input, safeFilename(app.packageManager.getApplicationLabel(info).toString() + ".apk"), null)
-        } catch (e: Exception) { input.delete(); throw e }
+        } catch (e: Exception) { workspace.deleteSelection(input); throw e }
     }
 
-    private fun inputFile(): File = File(app.filesDir, "wrapper/${UUID.randomUUID()}/input/base.apk").also {
-        check(it.parentFile!!.mkdirs()) { "Cannot create input snapshot" }
-    }
+    private fun inputFile(): File = workspace.createInputFile()
 
     private fun select(input: File, filename: String, uri: Uri?) {
         val manifest = WrapperPacker.inspect(input)
@@ -165,8 +170,10 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         val selected = SelectedApk(input, manifest.packageName,
             app.packageManager.getApplicationLabel(info).toString(),
             app.packageManager.getApplicationIcon(info).toBitmap(96, 96), uri)
+        val previous = mutable.value.selected
         mutable.update { it.copy(selected = selected, packageName = manifest.packageName,
             filename = filename, output = null, error = null, notice = null, logs = emptyList()) }
+        workspace.deleteSelection(previous?.file)
     }
 
     fun generate() = work {
@@ -176,6 +183,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
             throw IOException(app.getString(R.string.hook_unsupported))
         }
         mutable.update { it.copy(output = null, logs = emptyList()) }
+        workspace.deleteOutput(current.output)
         WrapperManifest.validatePackage(current.packageName)
         if (current.filename != safeFilename(current.filename) || current.filename.length > 180) {
             throw IOException(app.getString(R.string.invalid_filename))
@@ -203,12 +211,17 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
             if (current.packageName != selected.packageName) throw e
             e.message
         }
-        val output = File(selected.file.parentFile!!.parentFile, "output-${UUID.randomUUID()}/${current.filename}")
+        val output = workspace.createOutputFile(selected.file, current.filename)
         val loader = app.assets.open("wrapper/loader.dex").use { it.readBytes() }
         val runtime = app.assets.open("wrapper/runtime.zip").use { it.readBytes() }
-        WrapperPacker.pack(selected.file, output, current.packageName, loader, signer, runtime,
-            current.signatureCompat, gadget) { log ->
-            mutable.update { it.copy(logs = (it.logs + log).takeLast(200)) }
+        try {
+            WrapperPacker.pack(selected.file, output, current.packageName, loader, signer, runtime,
+                current.signatureCompat, gadget) { log ->
+                mutable.update { it.copy(logs = (it.logs + log).takeLast(200)) }
+            }
+        } catch (error: Exception) {
+            workspace.deleteOutput(output)
+            throw error
         }
         mutable.update { it.copy(output = output, notice = installNotice ?:
             if (current.packageName != selected.packageName) app.getString(R.string.renamed_package_warning) else null) }
@@ -235,10 +248,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
             if (cursor.moveToFirst()) cursor.getString(0) else null
         } ?: fallback
 
-    private fun optionFile(category: String, filename: String): File =
-        File(app.filesDir, "wrapper/options/$category-${UUID.randomUUID()}/$filename").also {
-            check(it.parentFile!!.mkdirs()) { "Cannot create option snapshot" }
-        }
+    private fun optionFile(category: String, filename: String): File = workspace.createOptionFile(category, filename)
 
     private fun copyUri(uri: Uri, destination: File, maximumSize: Long) {
         app.contentResolver.openInputStream(uri)?.use { source ->
@@ -369,11 +379,21 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         if (mutable.value.busy) return
         mutable.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch {
-            try { withContext(Dispatchers.IO) { block() } }
+            try { withContext(Dispatchers.IO) { cleanupJob.join(); block() } }
             catch (e: Exception) {
                 if (e is CancellationException) throw e
                 error(e)
             } finally { mutable.update { it.copy(busy = false) } }
+        }
+    }
+
+    private fun invalidateOutput(update: (WrapperState) -> WrapperState) {
+        if (mutable.value.busy) return
+        val previous = mutable.value.output
+        mutable.update { update(it).copy(output = null) }
+        if (previous != null) viewModelScope.launch(Dispatchers.IO) {
+            cleanupJob.join()
+            workspace.deleteOutput(previous)
         }
     }
 
