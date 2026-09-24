@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">APK Loader</string>
+    <string name="app_name">APK Loom</string>
     <string name="select_apk">Select APK</string>
     <string name="select_app">Installed apps</string>
     <string name="package_name">Wrapper package name</string>
@@ -25,7 +25,7 @@
     <string name="gadget_port_invalid">Use a Gadget port between 1 and 65535.</string>
     <string name="gadget_file_too_large">The selected Gadget or script file is too large.</string>
     <string name="gadget_file_empty">The selected Gadget or script file is empty.</string>
-    <string name="hook_unsupported">This NPatch build requires an arm64-v8a or x86_64 device.</string>
+    <string name="hook_unsupported">APK Loom requires an arm64-v8a or x86_64 device.</string>
     <string name="generated">APK ready</string>
     <string name="export">Export</string>
     <string name="install">Install</string>

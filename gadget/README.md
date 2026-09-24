@@ -57,7 +57,7 @@ frida -H 127.0.0.1:27043 Gadget
 监听模式：
 
 ```powershell
-java -jar out/wrapper/apk-wrapper.jar example.apk -o output `
+java -jar out/wrapper/apkloom-cli.jar example.apk -o output `
   --gadget C:\path\to\frida-gadget.so `
   --gadget-mode listen `
   --gadget-address 127.0.0.1 `
@@ -67,7 +67,7 @@ java -jar out/wrapper/apk-wrapper.jar example.apk -o output `
 加入 `--gadget-resume` 可让 Listen 模式加载后立即继续。脚本模式：
 
 ```powershell
-java -jar out/wrapper/apk-wrapper.jar example.apk -o output `
+java -jar out/wrapper/apkloom-cli.jar example.apk -o output `
   --gadget C:\path\to\frida-gadget.so `
   --gadget-mode script `
   --gadget-script C:\path\to\hook.js

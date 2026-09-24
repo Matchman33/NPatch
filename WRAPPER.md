@@ -1,12 +1,12 @@
-# NPatch 封装管理器
+# APK Loom
 
-当前版本已改回 NPatch 自身的运行时：MetaLoader → libnpatch → LSPApplication → Vector/LSPosed → LSPlant。Pine 和此前单独实现的 WrapperComponentFactory 已移除，wrapper-loader 现在只负责收集原框架构建产物。
+APK Loom 使用 NPatch 运行时：MetaLoader → libnpatch → LSPApplication → Vector/LSPosed → LSPlant。Pine 和此前单独实现的 WrapperComponentFactory 已移除，wrapper-loader 只负责收集原框架构建产物。
 
 保留选择 APK/已安装应用、原图标与名称、原文件名、原包嵌入 `assets/base.apk` 的功能。默认保留原包名，运行时代码和资源均从校验后的原包缓存加载，资源表不再重命名。不需要手机另外安装 Xposed 或 Root；框架随生成物携带。
 
 ## 构建
 
-简化管理器也会构建原 NPatch 原生运行时，已不再是免 NDK 的构建路径。本地构建需要：
+APK Loom 也会构建 NPatch 原生运行时，已不再是免 NDK 的构建路径。本地构建需要：
 
 - 完整的 JDK 21，不能只安装 JRE。Gradle 的 `Daemon JVM` 必须是 21，JDK 17 会产生“无效的源发行版：21”错误。
 - Android SDK Platform 37.0（包名 `platforms;android-37.0`）。
@@ -60,20 +60,22 @@ sdk.dir=D:/Sdk
 libxposed 源码子模块不可用时，core 的两个 Gradle 项目回退到官方 Maven Central 的 API/service/interface 102.0.0；这些是原框架的 API 依赖，不是其他 Hook 引擎。
 
 - 管理器：`wrapper-manager/build/outputs/apk/release/wrapper-manager-release.apk`
-- CLI：`out/wrapper/apk-wrapper.jar`
+- CLI：`out/wrapper/apkloom-cli.jar`
 - 引导：`meta-loader` 原始入口 `LSPAppComponentFactoryStub`
 - 运行时：`patch-loader` 的 `loader.bin` 及 ARM64/x86_64 `libnpatch.so`
 
 ## 使用
 
 ```powershell
-java -jar out/wrapper/apk-wrapper.jar example.apk -o output
-java -jar out/wrapper/apk-wrapper.jar example.apk -o output-signature --signature-compat
+java -jar out/wrapper/apkloom-cli.jar example.apk -o output
+java -jar out/wrapper/apkloom-cli.jar example.apk -o output-signature --signature-compat
 ```
 
 默认输出包名与原包相同。显式 `-p` 可改包名，但资源表仍保持原样，按当前包名查资源、硬编码包名或渠道 SDK 可能不兼容；管理器会提示这一限制。
 
 本地 APK 保留输入文件名，已安装应用默认导出为“应用名称.apk”。保留图标和多语言名称。生成、导出和安装分开，禁止覆盖原始输入文件。
+
+系统文件创建器不可用时，管理器会回退导出到 `Download/ApkLoom`。为保持管理器升级和封装格式兼容，应用包名以及 `assets/npatch`、`libnpatch.so` 等运行时名称继续保留。
 
 **同包名不代表同签名。** 默认外层仍使用 NPatch 内置签名；原版若使用不同证书，就不能直接覆盖安装，也不能在同一用户空间以同包名共存。管理器允许先生成和导出，但会阻止已知签名冲突的安装，不自动卸载应用或清除数据；打开操作也不会把原版当作已安装的封装版本。
 

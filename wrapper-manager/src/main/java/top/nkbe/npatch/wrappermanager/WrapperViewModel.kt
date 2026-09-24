@@ -297,7 +297,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun exportToMediaStore(output: File, filename: String): String {
-        val directory = "${Environment.DIRECTORY_DOWNLOADS}/NPatch"
+        val directory = "${Environment.DIRECTORY_DOWNLOADS}/ApkLoom"
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
             put(MediaStore.MediaColumns.MIME_TYPE, APK_MIME_TYPE)
@@ -326,7 +326,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
     private fun exportToAppDownloads(output: File, filename: String): String {
         val root = app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: throw IOException(app.getString(R.string.output_unwritable))
-        val directory = File(root, "NPatch")
+        val directory = File(root, "ApkLoom")
         if (!directory.isDirectory && !directory.mkdirs()) {
             throw IOException(app.getString(R.string.output_unwritable))
         }

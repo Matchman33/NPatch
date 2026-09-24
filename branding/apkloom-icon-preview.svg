@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <defs>
+    <symbol id="mark" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" fill="#174A3A"/>
+      <path d="M351 256h246c63 0 115 52 115 115v246c0 63-52 115-115 115H351c-63 0-115-52-115-115V371c0-63 52-115 115-115Z" fill="none" stroke="#F7FBF9" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M446 332h227c63 0 115 52 115 115v227c0 63-52 115-115 115H446c-63 0-115-52-115-115V447c0-63 52-115 115-115Z" fill="none" stroke="#FF786C" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <clipPath id="squircle"><rect x="92" y="126" width="560" height="560" rx="126"/></clipPath>
+    <clipPath id="circle"><circle cx="820" cy="264" r="138"/></clipPath>
+    <clipPath id="roundRect"><rect x="1002" y="126" width="276" height="276" rx="62"/></clipPath>
+  </defs>
+  <rect width="1400" height="900" fill="#F4F7F5"/>
+  <text x="92" y="74" fill="#17372D" font-family="Segoe UI,Arial,sans-serif" font-size="34" font-weight="700">APK Loom</text>
+  <text x="92" y="108" fill="#5B6D66" font-family="Segoe UI,Arial,sans-serif" font-size="18">Adaptive launcher icon concept</text>
+  <g clip-path="url(#squircle)"><use href="#mark" x="92" y="126" width="560" height="560"/></g>
+  <g clip-path="url(#circle)"><use href="#mark" x="682" y="126" width="276" height="276"/></g>
+  <g clip-path="url(#roundRect)"><use href="#mark" x="1002" y="126" width="276" height="276"/></g>
+  <text x="682" y="436" fill="#17372D" font-family="Segoe UI,Arial,sans-serif" font-size="20" font-weight="600">Circle mask</text>
+  <text x="1002" y="436" fill="#17372D" font-family="Segoe UI,Arial,sans-serif" font-size="20" font-weight="600">Rounded-square mask</text>
+  <rect x="682" y="496" width="596" height="190" rx="22" fill="#FFFFFF"/>
+  <use href="#mark" x="720" y="529" width="124" height="124"/>
+  <text x="878" y="573" fill="#17372D" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700">APK Loom</text>
+  <text x="878" y="608" fill="#5B6D66" font-family="Segoe UI,Arial,sans-serif" font-size="18">Original APK + runtime, woven into one.</text>
+  <text x="92" y="765" fill="#17372D" font-family="Segoe UI,Arial,sans-serif" font-size="20" font-weight="600">Concept</text>
+  <text x="92" y="800" fill="#5B6D66" font-family="Segoe UI,Arial,sans-serif" font-size="18">Two interleaved application layers. No lettermark, gradient, or implementation-specific symbol.</text>
+  <circle cx="104" cy="850" r="12" fill="#174A3A"/><text x="126" y="857" fill="#5B6D66" font-family="Segoe UI,Arial,sans-serif" font-size="17">Runtime green</text>
+  <circle cx="306" cy="850" r="12" fill="#FF786C"/><text x="328" y="857" fill="#5B6D66" font-family="Segoe UI,Arial,sans-serif" font-size="17">Embedded layer</text>
+  <circle cx="518" cy="850" r="12" fill="#F7FBF9" stroke="#D5DEDA"/><text x="540" y="857" fill="#5B6D66" font-family="Segoe UI,Arial,sans-serif" font-size="17">Open path</text>
+</svg>

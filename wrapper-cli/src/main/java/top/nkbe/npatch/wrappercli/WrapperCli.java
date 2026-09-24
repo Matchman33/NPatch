@@ -36,7 +36,7 @@ public final class WrapperCli {
 
     public static void main(String[] args) {
         WrapperCli command = new WrapperCli();
-        JCommander parser = JCommander.newBuilder().addObject(command).programName("apk-wrapper").build();
+        JCommander parser = JCommander.newBuilder().addObject(command).programName("apkloom").build();
         try {
             parser.parse(args);
             if (command.help) { parser.usage(); return; }

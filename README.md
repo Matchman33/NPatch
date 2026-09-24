@@ -1,14 +1,16 @@
-# NPatch 框架
-
-[![构建](https://img.shields.io/github/actions/workflow/status/7723mod/NPatch/main.yml?branch=master&logo=github&label=构建&event=push)](https://github.com/7723mod/NPatch/actions/workflows/main.yml?query=event%3Apush+is%3Acompleted+branch%3Amaster) [![下载](https://img.shields.io/github/v/release/7723mod/NPatch?color=orange&logoColor=orange&label=下载&logo=DocuSign)](https://github.com/7723mod/NPatch/releases/latest) [![下载量](https://shields.io/github/downloads/7723mod/NPatch/total?logo=Bookmeter&label=下载量&logoColor=yellow&color=yellow)](https://github.com/7723mod/NPatch/releases)
+# APK Loom
 
 ## 简介
 
-NPatch 是一个无需 Root 的 LSPosed / LSPatch 风格框架，通过向目标 APK 写入 DEX 和原生库，让应用在自身进程中获得 Xposed API 支持。
+APK Loom 是一个无需 Root 的独立 APK 封装工具。它将未修改的原 APK、加载器和运行时组合为一个可安装的 APK，并可按次加入 Frida Gadget。
 
-上游项目官网：[npatch.nkbe.top](https://npatch.nkbe.top)。上游版本的指南、架构说明和发布信息以官网为准。
+底层基于 NPatch 运行时，继续使用其 MetaLoader、Vector/LSPosed 与 LSPlant 链路。上游项目官网：[npatch.nkbe.top](https://npatch.nkbe.top)，上游指南、架构说明和发布信息以官网为准。
 
-本分支新增独立 APK 封装流程：管理器可选择本地 APK 或已安装应用，将未修改的原包保存到 `assets/base.apk`，并使用 NPatch 自身运行时加载原包代码和资源。外层运行时还可选择显式加载 Frida Gadget，支持 Listen 与同目录 `.so` 文件名的 Script 模式。详细构建、兼容范围和使用说明见 [封装管理器文档](WRAPPER.md)。
+管理器可选择本地 APK 或已安装应用，将原包保存到 `assets/base.apk`，再由 NPatch 运行时加载原包代码和资源。详细构建、兼容范围和使用说明见 [APK Loom 文档](WRAPPER.md)。
+
+品牌源文件和 Android 图标预览见 [`branding`](branding) 目录。交错的两层方框分别表示原应用与外层运行时。
+
+为了保持已安装管理器可直接升级以及既有封装格式兼容，Android `applicationId`、Java/Kotlin 包名、`assets/npatch` 和 `libnpatch.so` 暂时保留原技术名称。这些名称不再作为产品品牌展示。
 
 ## 支持版本
 
@@ -36,7 +38,7 @@ NPatch 是一个无需 Root 的 LSPosed / LSPatch 风格框架，通过向目标
 主要产物：
 
 - Android 管理器：`wrapper-manager/build/outputs/apk/release/wrapper-manager-release.apk`
-- 命令行工具：`out/wrapper/apk-wrapper.jar`
+- 命令行工具：`out/wrapper/apkloom-cli.jar`
 
 传统 NPatch 使用方式：
 
@@ -56,4 +58,4 @@ NPatch 是一个无需 Root 的 LSPosed / LSPatch 风格框架，通过向目标
 
 ## 许可证
 
-NPatch 使用 [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html) 发布。修改或分发时需要保留相应许可证和版权说明。
+APK Loom 基于 NPatch，按 [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html) 发布。修改或分发时需要保留相应许可证和版权说明。

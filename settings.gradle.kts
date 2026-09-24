@@ -24,7 +24,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NPatch"
+rootProject.name = "ApkLoom"
 val standaloneWrapper = providers.gradleProperty("standaloneWrapper").orNull == "true"
 if (standaloneWrapper) {
     include(":apkzlib", ":share:java", ":wrapper-loader", ":wrapper-patch", ":wrapper-manager", ":wrapper-cli")

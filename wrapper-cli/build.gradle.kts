@@ -13,7 +13,7 @@ dependencies {
 tasks.register<Jar>("fatJar") {
     dependsOn(":wrapper-loader:copyRelease", "classes")
     dependsOn(configurations.runtimeClasspath)
-    archiveFileName.set("apk-wrapper.jar")
+    archiveFileName.set("apkloom-cli.jar")
     destinationDirectory.set(rootProject.layout.projectDirectory.dir("out/wrapper"))
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest { attributes("Main-Class" to "top.nkbe.npatch.wrappercli.WrapperCli") }

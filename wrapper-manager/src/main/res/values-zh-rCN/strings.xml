@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">APK 加载器</string>
+    <string name="app_name">APK Loom</string>
     <string name="select_apk">选择 APK</string>
     <string name="select_app">已安装应用</string>
     <string name="package_name">外层包名</string>
@@ -25,7 +25,7 @@
     <string name="gadget_port_invalid">Gadget 端口必须在 1 到 65535 之间。</string>
     <string name="gadget_file_too_large">选择的 Gadget 或脚本文件过大。</string>
     <string name="gadget_file_empty">选择的 Gadget 或脚本文件为空。</string>
-    <string name="hook_unsupported">此 NPatch 构建需要 arm64-v8a 或 x86_64 设备。</string>
+    <string name="hook_unsupported">APK Loom 需要 arm64-v8a 或 x86_64 设备。</string>
     <string name="generated">APK 已生成</string>
     <string name="export">导出</string>
     <string name="install">安装</string>
