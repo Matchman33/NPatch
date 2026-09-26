@@ -2,7 +2,7 @@
 
 APK Loom 使用 NPatch 运行时：MetaLoader → libnpatch → LSPApplication → Vector/LSPosed → LSPlant。Pine 和此前单独实现的 WrapperComponentFactory 已移除，wrapper-loader 只负责收集原框架构建产物。
 
-保留选择 APK/已安装应用、原图标与名称、原文件名、原包嵌入 `assets/base.apk` 的功能。默认保留原包名，运行时代码和资源均从校验后的原包缓存加载，资源表不再重命名。不需要手机另外安装 Xposed 或 Root；框架随生成物携带。
+保留选择 APK/已安装应用、原图标与名称、原文件名、原包嵌入 `assets/base.apk` 的功能。默认保留原包名，运行时代码和资源均从校验后的原包缓存加载。显式改名时重写外层资源表包名称空间，代码来自原包、资源来自外层，并兼容新旧包名的动态资源查询。不需要手机另外安装 Xposed 或 Root；框架随生成物携带。
 
 ## 构建
 
@@ -54,7 +54,7 @@ sdk.dir=D:/Sdk
 只配置根目录的 `local.properties` 不够，因为 `core` 通过 `includeBuild("core")` 作为独立 Gradle 构建运行。完成环境配置后执行：
 
 ```powershell
-.\gradlew.bat -PstandaloneWrapper=true :wrapper-manager:assembleRelease :wrapper-cli:fatJar :wrapper-patch:test :patch-loader:testDebugUnitTest
+.\gradlew.bat -PstandaloneWrapper=true -PallowDebugSigning=true :wrapper-manager:collectReleaseArtifacts :wrapper-manager:testDebugUnitTest :wrapper-patch:test :patch-loader:testDebugUnitTest
 ```
 
 libxposed 源码子模块不可用时，core 的两个 Gradle 项目回退到官方 Maven Central 的 API/service/interface 102.0.0；这些是原框架的 API 依赖，不是其他 Hook 引擎。
@@ -71,7 +71,7 @@ java -jar out/wrapper/apkloom-cli.jar example.apk -o output
 java -jar out/wrapper/apkloom-cli.jar example.apk -o output-signature --signature-compat
 ```
 
-默认输出包名与原包相同。显式 `-p` 可改包名，但资源表仍保持原样，按当前包名查资源、硬编码包名或渠道 SDK 可能不兼容；管理器会提示这一限制。
+默认输出包名与原包相同。显式 `-p` 可改包名，外层资源表会同步更新并兼容新旧包名动态查询；硬编码包名或渠道 SDK 仍可能不兼容。`getPackageName()` 返回真实的新包名。
 
 本地 APK 保留输入文件名，已安装应用默认导出为“应用名称.apk”。保留图标和多语言名称。生成、导出和安装分开，禁止覆盖原始输入文件。
 
@@ -85,12 +85,64 @@ java -jar out/wrapper/apkloom-cli.jar example.apk -o output-signature --signatur
 - `assets/npatch/config.json` 使用原 PatchConfig，并记录独立封装模式及原包摘要；Manifest 的 npatch 元数据保持原框架格式。
 - 独立封装模式强制准备原包缓存，重新建立 LoadedApk，让代码和资源配套。保留原框架组件工厂回退和原生库准备逻辑。
 - 原包缓存使用锁、摘要检查、只读文件和原子发布，继续识别旧 NPatch 的 `assets/npatch/origin.apk` 布局。
+- 原包提取时同步计算 SHA-256，缓存命中仍进行完整摘要校验。活跃进程持有代际锁，清理只回收未使用的旧摘要文件。
 - 保持原包名的独立封装中，宿主应用通过 `ApplicationInfo.sourceDir`、`getPackageCodePath()` 和 Java `File` 路径接口看到校验后的原包缓存；NPatch 模块调用方仍看到包含注入资产的外层 APK。该规则不按 Android 版本分支。
 - 独立封装模式关闭管理器依赖、模块发现和模块加载，但保留 Vector/LSPosed 框架初始化。
 - 原签名兼容开关默认关闭；开启时使用原 NPatch 的 SIGBYPASS_EXTREME（等级 3），不再使用 Pine 查询替换。
 - 不修改 `assets/base.apk` 字节；可选 Frida Gadget 只作为外层运行时资产显式加载，不会写入内层原包。该能力不保证通过目标应用或服务端的所有完整性校验。
 - 当前原框架构建提供 ARM64 和 x86_64，32 位应用不在本构建支持范围内。分包、sharedUserId、isolatedProcess 等仍在输入阶段拒绝。
 - 同时保留外层资源副本和完整原包，大型 APK 仍有明显体积与 I/O 成本，尚未使用 NestedZip 去重。
+
+## 任务与存储
+
+- 多个管理器窗口共享一个进程级任务，同一时间只执行一个导入、生成或导出操作。
+- 长操作使用前台服务和通知，可在页面或通知中取消。第三方签名和 ZIP 写入的部分步骤只能在阶段边界响应取消。
+- 进程退出后不自动恢复未完成的输入流；下一次启动清理没有活跃锁的历史会话。
+- 当前 APK、选项与最新输出保留在缓存会话中。切换输入、修改参数或重新生成时删除失效输出；已导出到公共目录的文件不自动删除。
+- ZIP 中间文件放入任务目录，取消或失败后清理；异常终止留下的文件由后续会话清理接管。
+- 生成前按照 ZIP 条目、解压后的 SO、运行时和溢写文件估算空间；这不是固定的“三倍原包大小”。复制时继续检查剩余空间。
+- 缓存由 Android 管理，用户清缓存或系统回收后需要重新选择 APK。导出到文档提供方失败或取消时，提供方可能保留部分目标文件，请重新导出。
+- 首次使用时可在系统设置允许通知，以便在通知栏查看进度和取消任务。
+
+## 发布构建
+
+`gradle.properties` 中的 `apkLoomVersionCode` 和 `apkLoomVersionName` 是版本来源。
+正式发布时手动递增版本号；不能依赖 Git fetch 或提交数量改变安装版本。
+
+正式管理器必须提供以下环境变量，也支持对应的 Gradle 属性：
+
+| 环境变量 | Gradle 属性 |
+| --- | --- |
+| `ANDROID_STORE_FILE` | `androidStoreFile` |
+| `ANDROID_STORE_PASSWORD` | `androidStorePassword` |
+| `ANDROID_KEY_ALIAS` | `androidKeyAlias` |
+| `ANDROID_KEY_PASSWORD` | `androidKeyPassword` |
+
+配置后运行：
+
+```powershell
+.\gradlew.bat -PstandaloneWrapper=true :wrapper-manager:collectReleaseArtifacts
+```
+
+固定发布密钥请在仓库外备份，不能提交到 Git。正式密钥与之前的 Debug 证书不同，旧测试版可能无法直接覆盖升级，需要先导出所需结果再处理安装。
+管理器发布签名与生成外层 APK 所用的 NPatch 内置签名是两套用途不同的配置。
+
+仅做本地验证时显式加入 `-PallowDebugSigning=true`。产物版本名带 `-local`，目录为
+`out/releases/<版本>-local/`；正式包位于 `out/releases/<版本>/`。
+目录中包含管理器 APK、CLI JAR、`SHA256SUMS.txt` 和记录提交/工作区状态的 `BUILD.txt`。
+管理器 Release 构建会执行 lint。
+
+GitHub Actions 使用 APK Loom 专用构建。普通提交生成本地签名验证包；推送 `v<版本>` 标签时要求
+标签与版本名一致，并读取 `KEY_STORE`（Base64 JKS/PKCS12）、`KEY_STORE_PASSWORD`、`ALIAS`、
+`KEY_PASSWORD` 四项仓库 Secrets。工作流执行测试、lint、签名和摘要验证，上传产物但不自动发布 Release。
+
+本地摘要 I/O 测量：
+
+```powershell
+java scripts/OriginCopyBenchmark.java 128
+```
+
+该测量只比较电脑上的独立读取与同步摘要，不能代替 Android 冷启动、前台服务和 ROM 兼容测试。
 
 ## Frida Gadget
 

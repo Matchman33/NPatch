@@ -2,7 +2,6 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import com.android.build.gradle.BaseExtension
 import org.eclipse.jgit.api.Git
-import org.eclipse.jgit.internal.storage.file.FileRepository
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.gradle.kotlin.dsl.extra
 
@@ -23,11 +22,10 @@ buildscript {
     }
 }
 
-val commitCount = runCatching {
-    val repo = FileRepository(rootProject.file(".git"))
-    val refId = repo.refDatabase.exactRef("refs/remotes/origin/miuix")?.objectId
-    if (refId != null) Git(repo).log().add(refId).call().count() else 0
-}.getOrElse {0}
+val releaseVersionCode = providers.gradleProperty("apkLoomVersionCode").get().toInt()
+val releaseVersionName = providers.gradleProperty("apkLoomVersionName").get()
+require(releaseVersionCode > 0) { "apkLoomVersionCode must be positive" }
+require(releaseVersionName.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?"))) { "Invalid apkLoomVersionName" }
 
 val coreCommitCount = runCatching {
     FileRepositoryBuilder().setGitDir(rootProject.file("core/.git"))
@@ -40,8 +38,8 @@ val coreCommitCount = runCatching {
 
 val defaultManagerPackageName by extra("top.nkbe.npatch")
 val apiCode by extra(102)
-val verCode by extra(commitCount)
-val verName by extra("1.0.7")
+val verCode by extra(releaseVersionCode)
+val verName by extra(releaseVersionName)
 val coreVerCode by extra(coreCommitCount)
 val coreVerName by extra("v2.2-core")
 val androidMinSdkVersion by extra(28)
@@ -216,6 +214,38 @@ fun Project.configureApplicationExtension(extension: ApplicationExtension) {
         lint {
             abortOnError = true
             checkReleaseBuilds = false
+        }
+        if (project.path == ":wrapper-manager") {
+            val localSigning = providers.gradleProperty("allowDebugSigning").orNull == "true"
+            buildTypes.getByName("release").apply {
+                signingConfig = if (localSigning) signingConfigs["debug"] else config
+                if (localSigning) versionNameSuffix = "-local"
+            }
+            lint.checkReleaseBuilds = true
+            val verifySigning = tasks.register("verifyReleaseSigning") {
+                doLast {
+                    if (!localSigning) {
+                        check(config.storeFile?.isFile == true && !config.storePassword.isNullOrBlank() &&
+                            !config.keyAlias.isNullOrBlank() && !config.keyPassword.isNullOrBlank()) {
+                            "Release requires ANDROID_STORE_FILE, ANDROID_STORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD. Use -PallowDebugSigning=true only for local verification."
+                        }
+                        check(!config.keyAlias.equals("androiddebugkey", ignoreCase = true)) { "Debug key is not a release identity" }
+                        val password = config.storePassword!!.toCharArray()
+                        try {
+                            val store = java.security.KeyStore.getInstance(config.storeFile!!, password)
+                            val certificate = store.getCertificate(config.keyAlias) as? java.security.cert.X509Certificate
+                            check(certificate != null && store.isKeyEntry(config.keyAlias)) { "Release signing alias has no private key" }
+                            check(!certificate.subjectX500Principal.name.contains("CN=Android Debug", ignoreCase = true)) {
+                                "Android Debug certificate cannot be used for a formal release"
+                            }
+                        } finally { password.fill('\u0000') }
+                    }
+                }
+            }
+            tasks.configureEach {
+                if (name == "packageRelease" || name == "validateSigningRelease") dependsOn(verifySigning)
+                if (name == "assembleRelease") dependsOn("lintRelease")
+            }
         }
     }
 

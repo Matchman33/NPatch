@@ -20,6 +20,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
 import java.nio.file.StandardOpenOption;
@@ -31,6 +34,7 @@ public class OriginApkHelper {
     private static final String TAG = "NPatch-ApkHelper";
     private static final int PER_USER_RANGE = 100000;
     private static final String NATIVE_CACHE_COMPLETE = ".complete";
+    private static final Map<Path, FileChannel> originLeases = new HashMap<>();
 
     public static Path prepareOriginApk(ApplicationInfo appInfo, ClassLoader baseClassLoader) throws IOException {
         return prepareOriginApk(appInfo, baseClassLoader, null);
@@ -143,7 +147,8 @@ public class OriginApkHelper {
         return legacy != null ? legacy : source.getEntry(top.nkbe.npatch.share.WrapperConfig.APK_PATH);
     }
 
-    private static Path prepareVerifiedOrigin(ApplicationInfo appInfo, String expectedDigest) throws IOException {
+    private static synchronized Path prepareVerifiedOrigin(ApplicationInfo appInfo, String expectedDigest) throws IOException {
+        long started = System.nanoTime();
         if (!expectedDigest.matches("[0-9a-f]{64}")) throw new IOException("Invalid original APK digest");
         Path directory = Paths.get(appInfo.dataDir, "cache/code_cache");
         Files.createDirectories(directory);
@@ -155,14 +160,18 @@ public class OriginApkHelper {
             if (!Files.isRegularFile(target) || !expectedDigest.equals(sha256(target))) {
                 Path temporary = Files.createTempFile(directory, "origin-", ".tmp");
                 try {
+                    java.security.MessageDigest digest = newDigest();
                     try (InputStream input = outer.getInputStream(entry); FileOutputStream output = new FileOutputStream(temporary.toFile())) {
                         if (!temporary.toFile().setReadOnly()) throw new IOException("Cannot protect original APK cache");
                         byte[] buffer = new byte[65536];
                         int count;
-                        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                        while ((count = input.read(buffer)) != -1) {
+                            output.write(buffer, 0, count);
+                            digest.update(buffer, 0, count);
+                        }
                         output.getFD().sync();
                     }
-                    if (!expectedDigest.equals(sha256(temporary))) throw new IOException("Original APK checksum mismatch");
+                    if (!expectedDigest.equals(hexDigest(digest.digest()))) throw new IOException("Original APK checksum mismatch");
                     Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
                 } finally {
                     if (Files.exists(temporary)) {
@@ -172,25 +181,75 @@ public class OriginApkHelper {
                 }
             }
             if (!target.toFile().setReadOnly()) throw new IOException("Cannot protect original APK cache");
+            if (!originLeases.containsKey(target)) {
+                FileChannel lease = FileChannel.open(leasePath(target), StandardOpenOption.CREATE,
+                        StandardOpenOption.READ, StandardOpenOption.WRITE);
+                try {
+                    lease.lock(0, Long.MAX_VALUE, true);
+                    originLeases.put(target, lease);
+                } catch (IOException | RuntimeException error) { lease.close(); throw error; }
+            }
+            cleanupUnusedOrigins(directory, target);
+            Log.i(TAG, "Original APK verified in " + (System.nanoTime() - started) / 1_000_000L + " ms");
             return target;
         }
     }
 
+    private static Path leasePath(Path apk) { return apk.resolveSibling(apk.getFileName() + ".lease"); }
+
+    private static void cleanupUnusedOrigins(Path directory, Path current) {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(directory)) {
+            for (Path path : files) {
+                String name = path.getFileName().toString();
+                if (name.matches("origin-.*\\.tmp")) {
+                    path.toFile().setWritable(true);
+                    Files.deleteIfExists(path);
+                } else if (name.matches("[0-9a-f]{64}\\.apk") && !path.equals(current) && !originLeases.containsKey(path)) {
+                    // Exclusive acquisition proves no cooperating process still uses this generation.
+                    try (FileChannel lease = FileChannel.open(leasePath(path), StandardOpenOption.CREATE,
+                            StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                        FileLock lock;
+                        try { lock = lease.tryLock(); } catch (OverlappingFileLockException busy) { continue; }
+                        if (lock == null) continue;
+                        try {
+                            path.toFile().setWritable(true);
+                            Files.deleteIfExists(path);
+                        } finally { lock.release(); }
+                    }
+                    Files.deleteIfExists(leasePath(path));
+                }
+            }
+        } catch (IOException error) { Log.w(TAG, "Cannot clean old original APK cache", error); }
+    }
+
+    // Closing a process lifetime lease is only safe after its class loaders are no longer used.
+    static synchronized void releaseOriginLeases() throws IOException {
+        for (FileChannel channel : originLeases.values()) channel.close();
+        originLeases.clear();
+    }
+
+    private static java.security.MessageDigest newDigest() {
+        try { return java.security.MessageDigest.getInstance("SHA-256"); }
+        catch (java.security.NoSuchAlgorithmException error) { throw new AssertionError(error); }
+    }
+
+    private static String hexDigest(byte[] bytes) {
+        StringBuilder result = new StringBuilder(64);
+        for (byte value : bytes) {
+            result.append(Character.forDigit((value >>> 4) & 15, 16));
+            result.append(Character.forDigit(value & 15, 16));
+        }
+        return result.toString();
+    }
+
     private static String sha256(Path file) throws IOException {
-        try {
-            var digest = java.security.MessageDigest.getInstance("SHA-256");
-            try (InputStream input = Files.newInputStream(file)) {
-                byte[] buffer = new byte[65536];
-                int count;
-                while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
-            }
-            StringBuilder result = new StringBuilder(64);
-            for (byte value : digest.digest()) {
-                result.append(Character.forDigit((value >>> 4) & 15, 16));
-                result.append(Character.forDigit(value & 15, 16));
-            }
-            return result.toString();
-        } catch (java.security.NoSuchAlgorithmException error) { throw new AssertionError(error); }
+        var digest = newDigest();
+        try (InputStream input = Files.newInputStream(file)) {
+            byte[] buffer = new byte[65536];
+            int count;
+            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
+        }
+        return hexDigest(digest.digest());
     }
 
     private static String buildNativeLibraryStamp(List<String> apkPaths) {

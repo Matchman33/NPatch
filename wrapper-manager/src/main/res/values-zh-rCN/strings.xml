@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="task_channel">APK 任务</string>
+    <string name="task_preparing">准备中</string>
+    <string name="task_copying">复制文件</string>
+    <string name="task_hashing">校验输入</string>
+    <string name="task_embedding">嵌入原包</string>
+    <string name="task_signing">写入并签名</string>
+    <string name="task_verifying">校验生成物</string>
+    <string name="task_exporting">导出中</string>
+    <string name="task_bytes">%1$d / %2$d MiB</string>
+    <string name="cancel_task">取消</string>
+    <string name="task_cancelling">正在取消…</string>
+    <string name="task_cancelled">任务已取消</string>
     <string name="app_name">APK Loom</string>
     <string name="select_apk">选择 APK</string>
     <string name="select_app">已安装应用</string>

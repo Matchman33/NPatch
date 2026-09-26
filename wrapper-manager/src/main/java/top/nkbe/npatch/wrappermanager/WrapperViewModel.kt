@@ -2,6 +2,7 @@ package top.nkbe.npatch.wrappermanager
 
 import android.app.Application
 import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -11,11 +12,17 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
+import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
 import java.io.IOException
+import java.io.DataInputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.security.KeyStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +32,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.nkbe.npatch.patch.wrapper.WrapperManifest
+import top.nkbe.npatch.patch.wrapper.PackControl
 import top.nkbe.npatch.patch.wrapper.WrapperGadget
 import top.nkbe.npatch.patch.wrapper.WrapperPacker
 import top.nkbe.npatch.patch.wrapper.WrapperSigning
@@ -47,6 +55,10 @@ data class WrapperState(
     val gadgetWaitForClient: Boolean = true,
     val gadgetScript: SelectedAsset? = null,
     val busy: Boolean = false,
+    val cancelling: Boolean = false,
+    val stage: PackControl.Stage = PackControl.Stage.PREPARING,
+    val completedBytes: Long = 0,
+    val totalBytes: Long = -1,
     val appsLoading: Boolean = false,
     val apps: List<InstalledApp> = emptyList(),
     val output: File? = null,
@@ -58,8 +70,14 @@ data class WrapperState(
 class WrapperViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val mutable = MutableStateFlow(WrapperState())
-    private val workspace = WrapperWorkspace(app.cacheDir, File(app.filesDir, "wrapper"))
-    private val cleanupJob = viewModelScope.launch(Dispatchers.IO) { runCatching(workspace::cleanupStale) }
+    private val workspace = WrapperWorkspace(app.cacheDir, File(app.filesDir, "wrapper"), warn = { message ->
+        Log.w("WrapperWorkspace", message)
+        mutable.update { it.copy(logs = (it.logs + message).takeLast(200)) }
+    })
+    private val cleanupJob = viewModelScope.launch(Dispatchers.IO) {
+        try { workspace.cleanupStale() } catch (error: Exception) { Log.w("WrapperWorkspace", "Cleanup failed", error) }
+    }
+    private var activeControl: PackControl? = null
     val state = mutable.asStateFlow()
 
     fun packageName(value: String) {
@@ -104,7 +122,9 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         val filename = displayName(uri, "application.apk")
         val input = inputFile()
         try {
-            app.contentResolver.openInputStream(uri)?.use { source -> input.outputStream().use { source.copyTo(it) } }
+            app.contentResolver.openInputStream(uri)?.use { source -> input.outputStream().use {
+                copyStream(source, it, documentSize(uri), PackControl.Stage.COPYING, input.parentFile)
+            } }
                 ?: throw IOException(app.getString(R.string.input_unreadable))
             select(input, safeFilename(filename), uri)
         } catch (e: Exception) { workspace.deleteSelection(input); throw e }
@@ -114,7 +134,8 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         val file = optionFile("gadget", "libnpatch-gadget.so")
         try {
             copyUri(uri, file, MAX_GADGET_SIZE)
-            val header = file.inputStream().use { it.readNBytes(20) }
+            val header = ByteArray(20)
+            DataInputStream(file.inputStream()).use { it.readFully(header) }
             val abi = WrapperGadget.detectAbi(header)
             val selected = SelectedAsset(file, displayName(uri, "libnpatch-gadget.so"), abi)
             val previous = mutable.value.gadget
@@ -150,7 +171,10 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         val input = inputFile()
         try {
             val before = app.packageManager.getPackageInfo(packageName, 0).lastUpdateTime
-            File(info.sourceDir).inputStream().use { source -> input.outputStream().use { source.copyTo(it) } }
+            val installedApk = File(info.sourceDir)
+            installedApk.inputStream().use { source -> input.outputStream().use {
+                copyStream(source, it, installedApk.length(), PackControl.Stage.COPYING, input.parentFile)
+            } }
             if (app.packageManager.getPackageInfo(packageName, 0).lastUpdateTime != before) {
                 throw IOException(app.getString(R.string.source_updated))
             }
@@ -216,9 +240,9 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         val runtime = app.assets.open("wrapper/runtime.zip").use { it.readBytes() }
         try {
             WrapperPacker.pack(selected.file, output, current.packageName, loader, signer, runtime,
-                current.signatureCompat, gadget) { log ->
+                current.signatureCompat, gadget, { log ->
                 mutable.update { it.copy(logs = (it.logs + log).takeLast(200)) }
-            }
+            }, activeControl!!)
         } catch (error: Exception) {
             workspace.deleteOutput(output)
             throw error
@@ -256,6 +280,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 var total = 0L
                 while (true) {
+                    activeControl!!.check()
                     val count = source.read(buffer)
                     if (count < 0) break
                     total += count
@@ -306,6 +331,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         mutable.update { it.copy(notice = app.getString(R.string.exported_to, destination)) }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun exportToMediaStore(output: File, filename: String): String {
         val directory = "${Environment.DIRECTORY_DOWNLOADS}/ApkLoom"
         val values = ContentValues().apply {
@@ -342,7 +368,9 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
         }
         val destination = uniqueFile(directory, filename)
         try {
-            output.inputStream().use { source -> destination.outputStream().use { source.copyTo(it) } }
+            output.inputStream().use { source -> destination.outputStream().use {
+                copyStream(source, it, output.length(), PackControl.Stage.EXPORTING, directory)
+            } }
         } catch (e: Exception) {
             destination.delete()
             throw e
@@ -364,7 +392,7 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
 
     private fun copyOutput(output: File, uri: Uri, mode: String) {
         app.contentResolver.openOutputStream(uri, mode)?.use { destination ->
-            output.inputStream().use { it.copyTo(destination) }
+            output.inputStream().use { copyStream(it, destination, output.length(), PackControl.Stage.EXPORTING) }
         } ?: throw IOException(app.getString(R.string.output_unwritable))
     }
 
@@ -377,13 +405,58 @@ class WrapperViewModel(application: Application) : AndroidViewModel(application)
 
     private fun work(block: suspend () -> Unit) {
         if (mutable.value.busy) return
-        mutable.update { it.copy(busy = true, error = null, notice = null) }
+        val control = PackControl { stage, completed, total ->
+            mutable.update { it.copy(stage = stage, completedBytes = completed, totalBytes = total) }
+        }
+        activeControl = control
+        mutable.update { it.copy(busy = true, cancelling = false, stage = PackControl.Stage.PREPARING,
+            completedBytes = 0, totalBytes = -1, error = null, notice = null) }
         viewModelScope.launch {
-            try { withContext(Dispatchers.IO) { cleanupJob.join(); block() } }
+            try {
+                ContextCompat.startForegroundService(app, Intent(app, PackagingService::class.java))
+                withContext(Dispatchers.IO) { cleanupJob.join(); control.check(); block() }
+            }
             catch (e: Exception) {
-                if (e is CancellationException) throw e
-                error(e)
-            } finally { mutable.update { it.copy(busy = false) } }
+                if (e is CancellationException) notice(app.getString(R.string.task_cancelled)) else error(e)
+            } finally {
+                activeControl = null
+                mutable.update { it.copy(busy = false, cancelling = false) }
+                app.stopService(Intent(app, PackagingService::class.java))
+            }
+        }
+    }
+
+    fun cancelWork() {
+        activeControl?.let { control ->
+            mutable.update { it.copy(cancelling = true) }
+            control.cancel()
+        }
+    }
+
+    private fun documentSize(uri: Uri): Long = runCatching {
+        app.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use {
+            if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else -1L
+        } ?: -1L
+    }.getOrDefault(-1L)
+
+    private fun copyStream(source: InputStream, output: OutputStream, size: Long,
+                           stage: PackControl.Stage, directory: File? = null) {
+        val control = activeControl!!
+        val reserve = 32L * 1024 * 1024
+        if (directory != null) WrapperPacker.requireSpace(directory, Math.addExact(size.coerceAtLeast(0), reserve))
+        control.track(source, stage, size).use { input ->
+            val buffer = ByteArray(65536)
+            var sinceCheck = 0L
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                output.write(buffer, 0, count)
+                sinceCheck += count
+                if (directory != null && sinceCheck >= 8L * 1024 * 1024) {
+                    WrapperPacker.requireSpace(directory, reserve)
+                    sinceCheck = 0
+                }
+            }
         }
     }
 

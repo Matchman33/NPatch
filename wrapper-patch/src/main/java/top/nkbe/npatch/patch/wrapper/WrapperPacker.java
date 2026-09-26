@@ -6,6 +6,9 @@ import com.android.tools.build.apkzlib.sign.SigningOptions;
 import com.android.tools.build.apkzlib.zip.AlignmentRules;
 import com.android.tools.build.apkzlib.zip.ZFile;
 import com.android.tools.build.apkzlib.zip.ZFileOptions;
+import com.android.tools.build.apkzlib.bytestorage.ChunkBasedByteStorageFactory;
+import com.android.tools.build.apkzlib.bytestorage.OverflowToDiskByteStorageFactory;
+import com.android.tools.build.apkzlib.bytestorage.TemporaryDirectory;
 import com.google.gson.Gson;
 import com.google.common.io.ByteStreams;
 
@@ -55,6 +58,14 @@ public final class WrapperPacker {
     public static void pack(File input, File output, String targetPackage, byte[] loaderDex,
                             KeyStore.PrivateKeyEntry signer, byte[] runtimeZip, boolean signatureCompat,
                             WrapperGadget gadget, Consumer<String> log) throws Exception {
+        pack(input, output, targetPackage, loaderDex, signer, runtimeZip, signatureCompat, gadget,
+                log, new PackControl((stage, completed, total) -> {}));
+    }
+
+    public static void pack(File input, File output, String targetPackage, byte[] loaderDex,
+                            KeyStore.PrivateKeyEntry signer, byte[] runtimeZip, boolean signatureCompat,
+                            WrapperGadget gadget, Consumer<String> log, PackControl control) throws Exception {
+        control.report(PackControl.Stage.PREPARING, 0, -1);
         if (input.getCanonicalFile().equals(output.getCanonicalFile())) throw new IOException("Output must not overwrite the input APK");
         if (!input.isFile()) throw new IOException("Input APK not found");
         if (output.exists()) throw new IOException("Output already exists: " + output.getName());
@@ -69,6 +80,11 @@ public final class WrapperPacker {
         config.wrapperPackage = targetPackage;
         config.appComponentFactory = manifest.appComponentFactory;
         java.util.Map<String, byte[]> runtime = WrapperRuntime.read(runtimeZip, gadget);
+        File parent = output.getAbsoluteFile().getParentFile();
+        Files.createDirectories(parent.toPath());
+        long runtimeSize = loaderDex.length;
+        for (byte[] bytes : runtime.values()) runtimeSize = Math.addExact(runtimeSize, bytes.length);
+        requireSpace(parent, estimateRequiredSpace(input, runtimeSize));
         String originalSignature = null;
         if (signatureCompat) {
             log.accept("Validating original signature for compatibility mode");
@@ -91,7 +107,9 @@ public final class WrapperPacker {
         }
         long started = System.nanoTime();
         log.accept("Hashing input APK (" + input.length() / (1024 * 1024) + " MiB)");
-        config.apkSha256 = sha256(input);
+        try (InputStream contents = control.track(new FileInputStream(input), PackControl.Stage.HASHING, input.length())) {
+            config.apkSha256 = sha256(contents);
+        }
         PatchConfig npatch = new PatchConfig(false, false, false, 0,
                 signatureCompat ? Constants.SIGBYPASS_EXTREME : Constants.SIGBYPASS_NONE,
                 originalSignature, manifest.appComponentFactory, false, true, targetPackage, false, false);
@@ -101,22 +119,21 @@ public final class WrapperPacker {
         byte[] npatchBytes = new Gson().toJson(npatch).getBytes(StandardCharsets.UTF_8);
         byte[] rewritten = manifest.rewrite(targetPackage, java.util.Base64.getEncoder().encodeToString(npatchBytes));
         byte[] configBytes = new Gson().toJson(config).getBytes(StandardCharsets.UTF_8);
-        File parent = output.getAbsoluteFile().getParentFile();
-        Files.createDirectories(parent.toPath());
-        File temporary = File.createTempFile("wrapper-", ".apk", parent);
-        // ZFile creates the ZIP structure itself.
-        Files.delete(temporary.toPath());
+        File workDir = Files.createTempDirectory(parent.toPath(), "wrapper-work-").toFile();
+        File temporary = new File(workDir, "result.apk");
         try {
             log.accept("Building " + targetPackage);
             if (packageRenamed) log.accept("Rewriting resource package namespace for " + targetPackage);
-            ZFileOptions options = new ZFileOptions().setNoTimestamps(true).setAlignmentRule(
+            ZFileOptions options = new ZFileOptions().setStorageFactory(new ChunkBasedByteStorageFactory(
+                    new OverflowToDiskByteStorageFactory(8L * 1024 * 1024, () -> TemporaryDirectory.fixed(workDir))))
+                    .setNoTimestamps(true).setAlignmentRule(
                     AlignmentRules.compose(AlignmentRules.constantForSuffix(".so", 16384),
                             AlignmentRules.constantForSuffix(WrapperConfig.APK_PATH, 4096),
                             AlignmentRules.constant(4)));
             X509Certificate[] certificates = Arrays.copyOf(signer.getCertificateChain(),
                     signer.getCertificateChain().length, X509Certificate[].class);
             try (ZipFile original = new ZipFile(input);
-                 ZFile source = ZFile.openReadOnly(input);
+                 ZFile source = ZFile.openReadOnly(input, options);
                  ZFile destination = ZFile.openReadWrite(temporary, options)) {
                 new SigningExtension(SigningOptions.builder().setKey(signer.getPrivateKey())
                         .setCertificates(certificates).setMinSdkVersion(manifest.minSdk)
@@ -128,6 +145,7 @@ public final class WrapperPacker {
                 Set<String> nativeAbis = new HashSet<>();
                 Enumeration<? extends ZipEntry> entries = original.entries();
                 while (entries.hasMoreElements()) {
+                    control.check();
                     ZipEntry entry = entries.nextElement();
                     String name = entry.getName();
                     String[] segments = name.split("/");
@@ -154,10 +172,11 @@ public final class WrapperPacker {
                     throw new IOException("This NPatch runtime requires a 64-bit application ABI");
                 }
                 log.accept("Copying resources and assets without recompression");
-                destination.mergeFrom(source, excluded::contains);
+                control.report(PackControl.Stage.COPYING, 0, -1);
+                destination.mergeFrom(source, name -> { control.check(); return excluded.contains(name); });
                 for (String name : storeUncompressed) {
                     ZipEntry entry = original.getEntry(name);
-                    try (InputStream contents = original.getInputStream(entry)) {
+                    try (InputStream contents = control.track(original.getInputStream(entry), PackControl.Stage.COPYING, entry.getSize())) {
                         destination.add(name, contents, false);
                     }
                 }
@@ -165,7 +184,7 @@ public final class WrapperPacker {
                     ZipEntry resources = original.getEntry("resources.arsc");
                     if (resources != null) {
                         byte[] resourceTable;
-                        try (InputStream contents = original.getInputStream(resources)) {
+                        try (InputStream contents = control.track(original.getInputStream(resources), PackControl.Stage.COPYING, resources.getSize())) {
                             resourceTable = ByteStreams.toByteArray(contents);
                         }
                         destination.add("resources.arsc", new ByteArrayInputStream(
@@ -183,26 +202,58 @@ public final class WrapperPacker {
                     destination.add(WrapperConfig.RUNTIME_PREFIX + entry.getKey(), new ByteArrayInputStream(entry.getValue()), false);
                 }
                 log.accept("Embedding original APK");
-                try (InputStream contents = new FileInputStream(input)) {
+                try (InputStream contents = control.track(new FileInputStream(input), PackControl.Stage.EMBEDDING, input.length())) {
                     destination.add(WrapperConfig.APK_PATH, contents, false);
                 }
                 destination.realign();
                 log.accept("Writing and signing wrapper");
+                control.report(PackControl.Stage.SIGNING, 0, -1);
             }
+            control.report(PackControl.Stage.VERIFYING, 0, -1);
             log.accept("Verifying signature and embedded APK");
             ApkVerifier.Result verification = new ApkVerifier.Builder(temporary)
                     .setMinCheckedPlatformVersion(manifest.minSdk).build().verify();
             if (!verification.isVerified()) throw new IOException("Wrapper signature verification failed: " + verification.getErrors());
             try (ZipFile zip = new ZipFile(temporary);
-                 InputStream embedded = zip.getInputStream(zip.getEntry(WrapperConfig.APK_PATH))) {
+                 InputStream embedded = control.track(zip.getInputStream(zip.getEntry(WrapperConfig.APK_PATH)),
+                         PackControl.Stage.VERIFYING, input.length())) {
                 if (!config.apkSha256.equals(sha256(embedded))) throw new IOException("Embedded APK changed during packaging");
             }
+            control.check();
             Files.move(temporary.toPath(), output.toPath());
             log.accept("Created " + output.getName() + " in "
                     + (System.nanoTime() - started) / 1_000_000_000L + " s");
         } finally {
-            Files.deleteIfExists(temporary.toPath());
+            try (var paths = Files.walk(workDir.toPath())) {
+                for (var path : paths.sorted(java.util.Comparator.reverseOrder()).collect(java.util.stream.Collectors.toList())) {
+                    try { Files.deleteIfExists(path); }
+                    catch (IOException error) { log.accept("Cleanup failed: " + path.getFileName() + ": " + error.getMessage()); }
+                }
+            }
         }
+    }
+
+    /** Additional free space; the input snapshot already exists. Includes ZIP spill files. */
+    public static long estimateRequiredSpace(File input, long runtimeBytes) throws IOException {
+        try (ZipFile zip = new ZipFile(input)) {
+            long outer = Math.addExact(input.length(), runtimeBytes);
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                if (entry.isDirectory()) continue;
+                long size = entry.getName().endsWith(".so") || entry.getName().equals("resources.arsc")
+                        ? entry.getSize() : entry.getCompressedSize();
+                if (size < 0) throw new IOException("Unknown ZIP entry size");
+                outer = Math.addExact(outer, Math.addExact(size, 32768L));
+            }
+            return Math.addExact(Math.multiplyExact(outer, 2L), 64L * 1024 * 1024);
+        } catch (ArithmeticException error) { throw new IOException("APK size exceeds supported range", error); }
+    }
+
+    public static void requireSpace(File directory, long required) throws IOException {
+        long available = directory.getUsableSpace();
+        if (available < required) throw new IOException("Insufficient storage: need " + required / (1024 * 1024)
+                + " MiB, available " + available / (1024 * 1024) + " MiB");
     }
 
     private static boolean signatureEntry(String name) {

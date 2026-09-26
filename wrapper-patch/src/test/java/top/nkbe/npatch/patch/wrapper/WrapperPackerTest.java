@@ -24,6 +24,54 @@ public class WrapperPackerTest {
     private static final String NS = "http://schemas.android.com/apk/res/android";
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
+    @Test public void zipStorageStaysInsideTaskDirectory() throws Exception {
+        File input = new File(temporary.getRoot(), "temp-scope.apk");
+        byte[] payload = new byte[6 * 1024 * 1024];
+        new java.util.Random(42).nextBytes(payload);
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(input.toPath()))) {
+            entry(zip, "AndroidManifest.xml", manifest(null));
+            entry(zip, "assets/large.bin", payload);
+        }
+        File directory = temporary.newFolder("scoped-output");
+        var signer = testSigner();
+        byte[] runtimeZip = runtime();
+        var observed = new java.util.concurrent.atomic.AtomicBoolean();
+        var control = new PackControl((stage, done, total) -> {
+            if (stage != PackControl.Stage.SIGNING) return;
+            try (var files = Files.walk(directory.toPath())) {
+                observed.set(files.anyMatch(path -> path.getFileName().toString().endsWith(".data")));
+            } catch (IOException error) { throw new AssertionError(error); }
+        });
+        WrapperPacker.pack(input, new File(directory, "wrapped.apk"), "example.original", loader(),
+                signer, runtimeZip, false, null, ignored -> {}, control);
+        assertTrue("ZIP overflow must be observable in the task directory", observed.get());
+        assertArrayEquals(new String[] {"wrapped.apk"}, directory.list());
+    }
+
+    @Test public void cancellationDuringEmbeddingDoesNotPublishOrLeakTaskFiles() throws Exception {
+        File input = input("cancel.apk", false);
+        File directory = temporary.newFolder("cancel-output");
+        File output = new File(directory, "wrapped.apk");
+        var control = new PackControl((stage, done, total) -> {
+            if (stage == PackControl.Stage.EMBEDDING) throw new java.util.concurrent.CancellationException();
+        });
+        assertThrows(java.util.concurrent.CancellationException.class, () -> WrapperPacker.pack(
+                input, output, "example.original", loader(), testSigner(), runtime(), false, null, ignored -> {}, control));
+        assertFalse(output.exists());
+        assertEquals(0, directory.list().length);
+    }
+
+    @Test public void spaceEstimateIncludesUncompressedLibrariesAndRejectsOverflow() throws Exception {
+        File input = new File(temporary.getRoot(), "compressed-library.apk");
+        byte[] nativeBytes = new byte[2 * 1024 * 1024];
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(input.toPath()))) {
+            entry(zip, "lib/arm64-v8a/liblarge.so", nativeBytes);
+        }
+        long estimate = WrapperPacker.estimateRequiredSpace(input, 0);
+        assertTrue(estimate >= 64L * 1024 * 1024 + nativeBytes.length * 2L);
+        assertThrows(IOException.class, () -> WrapperPacker.estimateRequiredSpace(input, Long.MAX_VALUE));
+    }
+
     @Test public void preservesBrandingAndNormalizesComponentIdentity() throws Exception {
         byte[] result = new WrapperManifest(manifest(null)).rewrite("example.original.wrapped");
         List<String> attributes = attributes(result);

@@ -32,13 +32,18 @@ APK Loom 是一个无需 Root 的独立 APK 封装工具。它将未修改的原
 独立封装管理器的推荐构建命令：
 
 ```powershell
-.\gradlew.bat -PstandaloneWrapper=true :wrapper-manager:assembleRelease :wrapper-cli:fatJar :wrapper-patch:test :patch-loader:testDebugUnitTest
+.\gradlew.bat -PstandaloneWrapper=true -PallowDebugSigning=true :wrapper-manager:collectReleaseArtifacts :wrapper-manager:testDebugUnitTest :wrapper-patch:test :patch-loader:testDebugUnitTest
 ```
 
 主要产物：
 
 - Android 管理器：`wrapper-manager/build/outputs/apk/release/wrapper-manager-release.apk`
 - 命令行工具：`out/wrapper/apkloom-cli.jar`
+- 本地校验包与校验文件：`out/releases/1.0.7-local/`。`-local` 表示使用本机 Debug 签名，不应作为正式版本发布。
+
+正式构建须配置固定签名密钥并去掉 `-PallowDebugSigning=true`；缺少签名会使构建失败。
+版本号在 `gradle.properties` 中显式维护，已不依赖远端分支提交数。
+签名配置及 CI 说明见 [发布构建](WRAPPER.md#发布构建)。
 
 传统 NPatch 使用方式：
 

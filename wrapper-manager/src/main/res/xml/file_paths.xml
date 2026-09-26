@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="wrapper_cache" path="wrapper/" />
-    <files-path name="wrapper_legacy" path="wrapper/" />
+    <files-path name="wrapper" path="wrapper/" />
 </paths>

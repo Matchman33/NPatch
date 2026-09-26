@@ -52,6 +52,26 @@ public class OriginApkHelperTest {
         }
     }
 
+    @Test public void removesUnusedGenerationsButPreservesLeasedGeneration() throws Exception {
+        ApplicationInfo info = archive("assets/base.apk");
+        String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(original));
+        var target = OriginApkHelper.prepareOriginApk(info, null, hash);
+        var stale = target.resolveSibling("a".repeat(64) + ".apk");
+        var active = target.resolveSibling("b".repeat(64) + ".apk");
+        Files.write(stale, original);
+        Files.write(active, original);
+        try (var channel = java.nio.channels.FileChannel.open(active.resolveSibling(active.getFileName() + ".lease"),
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+             var lock = channel.lock()) {
+            OriginApkHelper.prepareOriginApk(info, null, hash);
+            assertFalse(Files.exists(stale));
+            assertTrue(Files.exists(active));
+        }
+        OriginApkHelper.prepareOriginApk(info, null, hash);
+        assertFalse(Files.exists(active));
+        assertTrue(Files.exists(target));
+    }
+
     private ApplicationInfo archive(String path) throws IOException {
         File directory = temporary.newFolder();
         File outer = new File(directory, "outer.apk");
@@ -66,6 +86,7 @@ public class OriginApkHelperTest {
     }
 
     @After public void releaseReadOnlyFixtures() throws IOException {
+        OriginApkHelper.releaseOriginLeases();
         try (var files = Files.walk(temporary.getRoot().toPath())) {
             files.filter(Files::isRegularFile).forEach(path -> path.toFile().setWritable(true));
         }

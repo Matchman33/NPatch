@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.GetApp
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
@@ -79,7 +80,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -110,7 +110,8 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun WrapperScreen(initialUri: Uri?, model: WrapperViewModel = viewModel()) {
+private fun WrapperScreen(initialUri: Uri?, model: WrapperViewModel =
+    (LocalContext.current.applicationContext as WrapperApplication).model) {
     val state by model.state.collectAsState()
     val context = LocalContext.current
     val installPermission = stringResource(R.string.install_permission)
@@ -226,7 +227,19 @@ private fun WrapperScreen(initialUri: Uri?, model: WrapperViewModel = viewModel(
                     Text(stringResource(R.string.generate))
                 }
             }
-            if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (state.busy) {
+                if (state.totalBytes > 0) {
+                    LinearProgressIndicator(progress = { state.progressPercent() / 100f }, modifier = Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.task_bytes, state.completedBytes / (1024 * 1024), state.totalBytes / (1024 * 1024)))
+                } else LinearProgressIndicator(Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(if (state.cancelling) R.string.task_cancelling else state.stage.labelResource()), Modifier.weight(1f))
+                    TextButton(onClick = model::cancelWork, enabled = !state.cancelling) {
+                        Icon(Icons.Outlined.Close, contentDescription = null)
+                        Text(stringResource(R.string.cancel_task))
+                    }
+                }
+            }
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             state.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             state.output?.let {

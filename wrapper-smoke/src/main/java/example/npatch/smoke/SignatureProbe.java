@@ -14,6 +14,8 @@ import org.json.JSONObject;
 final class SignatureProbe {
     private static final int FLAGS = PackageManager.GET_SIGNATURES | PackageManager.GET_SIGNING_CERTIFICATES;
 
+    // Invalid certificate flags below are intentional negative test inputs.
+    @android.annotation.SuppressLint("WrongConstant")
     static boolean check(Context context) {
         try {
             PackageInfo installed = context.getPackageManager().getPackageInfo(context.getPackageName(), PackageManager.GET_META_DATA);
